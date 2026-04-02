@@ -1,0 +1,109 @@
+---
+title: "F# usage"
+description: "Use Verify from F# with Expecto or xUnit, including F# type serialization and async test patterns."
+---
+
+Verify supports F# projects. You can use it with [Expecto](https://github.com/haf/expecto) via the `Verify.Expecto` package, or with xUnit and other test frameworks directly.
+
+## Expecto
+
+Install the `Verify.Expecto` NuGet package:
+
+```bash
+dotnet add package Verify.Expecto
+```
+
+Basic test example:
+
+```fsharp
+open Expecto
+open VerifyTests
+open VerifyExpecto
+
+[<Tests>]
+let tests =
+    testTask "findPerson" {
+        let person = ClassBeingTested.FindPerson()
+        do! Verifier.Verify("findPerson", person).ToTask()
+    }
+```
+
+<Warning>
+  Due to the nature of the Expecto implementation, the following APIs are not supported:
+
+  - `settings.UseParameters()`
+  - `settings.UseTextForParameters()`
+</Warning>
+
+## xUnit and other frameworks
+
+You can use Verify from F# with xUnit v3 (or any other supported test framework) by referencing the corresponding package, for example `Verify.XunitV3`.
+
+### F# type serialization
+
+Verify uses [Argon](https://github.com/SimonCropp/Argon) for serialization. F# type support is provided by the `Argon.FSharp` package. To serialize F# types correctly, register the F# converters at startup:
+
+```fsharp
+VerifierSettings.AddExtraSettings(fun settings -> settings.AddFSharpConverters())
+```
+
+### DefaultValueHandling and Option.None
+
+By default, `DefaultValueHandling` is set to `Ignore`. Because F# `Option.None` is treated as `null`, it is excluded from snapshots by default. To include `Option.None` in output, set `DefaultValueHandling` to `Include` at module startup:
+
+```fsharp
+VerifierSettings.AddExtraSettings(fun settings ->
+    settings.DefaultValueHandling <- DefaultValueHandling.Include)
+```
+
+### Async tests
+
+F# does not support implicit operator conversion. `SettingsTask` relies on implicit conversion to provide its fluent API and awaitable behavior. In F#, you must explicitly call `.ToTask()` and pipe it through `Async.AwaitTask`:
+
+```fsharp
+[<Fact>]
+let MyTest () =
+    Verifier.Verify(15).ToTask() |> Async.AwaitTask
+```
+
+Fluent settings also work the same way:
+
+```fsharp
+[<Fact>]
+let WithFluentSetting () =
+    Verifier
+        .Verify(15)
+        .UseMethodName("customName")
+        .ToTask()
+    |> Async.AwaitTask
+```
+
+## Full example
+
+A complete F# test module using xUnit:
+
+```fsharp
+module Tests
+
+open Xunit
+open VerifyTests
+open VerifyXunit
+open Argon
+
+VerifierSettings.AddExtraSettings(fun settings ->
+    settings.DefaultValueHandling <- DefaultValueHandling.Include)
+
+[<Fact>]
+let MyTest () =
+    Verifier.Verify(15).ToTask() |> Async.AwaitTask
+
+[<Fact>]
+let WithFluentSetting () =
+    Verifier
+        .Verify(15)
+        .UseMethodName("customName")
+        .ToTask()
+    |> Async.AwaitTask
+
+do ()
+```

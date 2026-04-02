@@ -1,0 +1,237 @@
+---
+title: VerifierSettings
+description: Global static settings that configure verification behavior for all tests. Should be set in a [ModuleInitializer].
+---
+
+`VerifierSettings` is a static class that configures verification behavior globally. Settings applied here affect every test in the assembly.
+
+<Warning>
+All `VerifierSettings` methods must be called before any `Verify()` has run. Attempting to change global settings after the first verification will throw an exception. Use a `[ModuleInitializer]` to ensure correct ordering.
+</Warning>
+
+## ModuleInitializer pattern
+
+```cs
+public static class ModuleInitializer
+{
+    [ModuleInitializer]
+    public static void Initialize()
+    {
+        VerifierSettings.AddScrubber(s => s.Replace("secret", "[redacted]"));
+        VerifierSettings.UseStrictJson();
+    }
+}
+```
+
+On .NET Framework (where `[ModuleInitializer]` requires a polyfill), you can alternatively place setup code in the test framework's "run once before all tests" hook.
+
+## Scrubbing
+
+<ResponseField name="AddScrubber(Action<StringBuilder> scrubber)" type="static void">
+  Register a global scrubber that runs for every test. The action receives the full serialized snapshot as a `StringBuilder` and can modify it in place.
+
+  ```cs
+  VerifierSettings.AddScrubber(s => s.Replace("localhost:5000", "host"));
+  ```
+</ResponseField>
+
+<ResponseField name="ScrubLines(Func<string, bool> removeLine)" type="static void">
+  Remove all lines for which the predicate returns `true`, globally.
+</ResponseField>
+
+<ResponseField name="ScrubLinesContaining(params string[] stringToMatch)" type="static void">
+  Remove all lines containing any of the given strings (case-insensitive) globally.
+
+  ```cs
+  VerifierSettings.ScrubLinesContaining("generated-id", "build-number");
+  ```
+</ResponseField>
+
+<ResponseField name="ScrubLinesWithReplace(Func<string, string?> replaceLine)" type="static void">
+  Replace or remove individual lines globally. Return the original line to keep it, return a new string to substitute it, or return `null` to remove it.
+</ResponseField>
+
+<ResponseField name="ScrubEmptyLines()" type="static void">
+  Remove all whitespace-only lines globally.
+</ResponseField>
+
+<ResponseField name="ScrubMachineName()" type="static void">
+  Replace `Environment.MachineName` in all snapshot output.
+</ResponseField>
+
+<ResponseField name="ScrubUserName()" type="static void">
+  Replace `Environment.UserName` in all snapshot output.
+</ResponseField>
+
+<ResponseField name="ScrubInlineGuids()" type="static void">
+  Replace all inline GUID strings in snapshot output with `Guid_N` placeholders.
+</ResponseField>
+
+<ResponseField name="ScrubInlineDateTimes(string format)" type="static void">
+  Replace inline `DateTime` values matching the given format with placeholders globally.
+</ResponseField>
+
+## Directory scrubbers
+
+By default, Verify automatically redacts the solution directory, project directory, and user profile path from snapshot output to keep snapshots portable.
+
+<ResponseField name="DontScrubSolutionDirectory()" type="static void">
+  Disable automatic scrubbing of the solution directory path.
+</ResponseField>
+
+<ResponseField name="DontScrubProjectDirectory()" type="static void">
+  Disable automatic scrubbing of the project directory path.
+</ResponseField>
+
+<ResponseField name="DontScrubUserProfile()" type="static void">
+  Disable automatic scrubbing of the user profile path (`Environment.GetFolderPath(SpecialFolder.UserProfile)`).
+</ResponseField>
+
+## JSON output format
+
+<ResponseField name="UseStrictJson()" type="static void">
+  Serialize all snapshots as strict JSON (`.json` extension) instead of the default relaxed text format (`.txt`).
+
+  ```cs
+  VerifierSettings.UseStrictJson();
+  ```
+</ResponseField>
+
+<ResponseField name="SortPropertiesAlphabetically()" type="static void">
+  Sort serialized object properties alphabetically in snapshot output.
+</ResponseField>
+
+<ResponseField name="SortJsonObjects()" type="static void">
+  Sort JSON object keys alphabetically in snapshot output.
+</ResponseField>
+
+## Comparison
+
+<ResponseField name="UseStringComparer(StringCompare compare, params string[] extensions)" type="static void">
+  Register a global custom text comparison function, optionally scoped to specific file extensions.
+</ResponseField>
+
+<ResponseField name="UseStreamComparer(StreamCompare compare, params string[] extensions)" type="static void">
+  Register a global custom binary comparison function, optionally scoped to specific file extensions.
+</ResponseField>
+
+## Callbacks
+
+<ResponseField name="OnVerify(Action before, Action after)" type="static void">
+  Register callbacks that run before and after every verification globally.
+
+  ```cs
+  VerifierSettings.OnVerify(
+      before: () => StartClock(),
+      after:  () => StopClock());
+  ```
+</ResponseField>
+
+<ResponseField name="OnFirstVerify(FirstVerify callback)" type="static void">
+  Register a callback that runs globally whenever a snapshot is created for the first time (no existing `.verified.` file).
+</ResponseField>
+
+<ResponseField name="OnVerifyMismatch(VerifyMismatch callback)" type="static void">
+  Register a callback that runs globally whenever a received snapshot does not match the verified snapshot.
+</ResponseField>
+
+## Auto-accept
+
+<ResponseField name="AutoVerify(bool includeBuildServer, bool throwException)" type="static void">
+  Automatically accept all received snapshots for every test.
+
+  ```cs
+  VerifierSettings.AutoVerify();
+  ```
+
+  Set `includeBuildServer: false` to disable on CI servers. Set `throwException: true` to still fail tests even when auto-accepting.
+</ResponseField>
+
+<ResponseField name="AutoVerify(GlobalAutoVerify autoVerify, bool includeBuildServer, bool throwException)" type="static void">
+  Provide a predicate `(typeName, methodName, parameters) => bool` to selectively auto-accept only certain tests.
+</ResponseField>
+
+## Serialization
+
+<ResponseField name="AddExtraSettings(Action<JsonSerializerSettings> action)" type="static void">
+  Extend the underlying Argon/Newtonsoft JSON serializer settings globally.
+
+  ```cs
+  VerifierSettings.AddExtraSettings(s =>
+  {
+      s.DefaultValueHandling = DefaultValueHandling.Include;
+  });
+  ```
+</ResponseField>
+
+<ResponseField name="TreatAsString<T>(AsString<T> toString)" type="static void">
+  Register a custom `ToString` conversion for type `T`. The converted string is stored as a text snapshot rather than serializing the object graph.
+</ResponseField>
+
+## Encoding
+
+<ResponseField name="UseEncoding(Encoding encoding)" type="static void">
+  Change the encoding used when writing text snapshot files. The default is UTF-8 with BOM.
+</ResponseField>
+
+<ResponseField name="UseUtf8NoBom()" type="static void">
+  Write text snapshots as UTF-8 without a byte-order mark.
+</ResponseField>
+
+## Plugins
+
+<ResponseField name="InitializePlugins()" type="static void">
+  Scan the current assembly's directory for `Verify.*.dll` plugin assemblies and call each plugin's `Initialize()` method automatically.
+
+  ```cs
+  VerifierSettings.InitializePlugins();
+  ```
+
+  This is an alternative to calling each plugin's `Initialize()` method explicitly in the `[ModuleInitializer]`.
+</ResponseField>
+
+## Fixie integration
+
+<ResponseField name="AssignTargetAssembly(Assembly assembly)" type="static void">
+  Assign the test assembly. Required for Fixie, which does not expose the test assembly automatically. Call this in `ITestProject.Configure`.
+
+  ```cs
+  public void Configure(TestConfiguration configuration, TestEnvironment environment)
+  {
+      VerifierSettings.AssignTargetAssembly(environment.Assembly);
+      configuration.Conventions.Add<DefaultDiscovery, TestProject>();
+  }
+  ```
+</ResponseField>
+
+## File naming
+
+<ResponseField name="DisableRequireUniquePrefix()" type="static void">
+  Allow multiple tests in an assembly to map to the same snapshot file prefix. By default, Verify enforces uniqueness to prevent accidental file sharing.
+</ResponseField>
+
+<ResponseField name="UseSplitModeForUniqueDirectory()" type="static void">
+  When using `UseUniqueDirectory`, store received and verified files in separate sibling directories (`.received/` and `.verified/`) instead of using file-name suffixes.
+</ResponseField>
+
+<ResponseField name="UniqueForRuntime()" type="static void">
+  Append the current .NET runtime identifier to all snapshot file names. Use when results differ across runtimes.
+</ResponseField>
+
+<ResponseField name="UniqueForTargetFramework()" type="static void">
+  Append the target framework moniker to all snapshot file names.
+</ResponseField>
+
+<ResponseField name="UniqueForArchitecture()" type="static void">
+  Append the processor architecture (`x86`, `x64`, `arm`, `arm64`) to all snapshot file names.
+</ResponseField>
+
+<ResponseField name="UniqueForOSPlatform()" type="static void">
+  Append the operating system family (`Linux`, `Windows`, `OSX`) to all snapshot file names.
+</ResponseField>
+
+## Content
+
+<ResponseField name="OmitContentFromException()" type="static void">
+  When a verification fails, do not include the snapshot content in the exception message. Useful when snapshots are large or contain sensitive data.
+</ResponseField>

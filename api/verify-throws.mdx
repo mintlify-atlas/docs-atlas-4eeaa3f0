@@ -1,0 +1,137 @@
+---
+title: Verify — Exceptions
+description: Snapshot-test the exception thrown by a method. Captures the exception type, message, and stack trace.
+---
+
+`Throws` and `ThrowsTask` verify that a method throws an exception and snapshot the exception details. This is useful for asserting both that an exception occurs and that its content matches expectations.
+
+The snapshot includes the exception type, message, and stack trace (with Verify's own internal frames automatically scrubbed).
+
+## Synchronous methods
+
+Given a method that throws:
+
+```cs
+static void MethodThatThrows() =>
+    throw new("The Message");
+```
+
+Verify the thrown exception:
+
+```cs
+[Fact]
+public Task TestMethodThatThrows() =>
+    Throws(MethodThatThrows);
+```
+
+Resulting snapshot (`ThrowsTests.TestMethodThatThrows.verified.txt`):
+
+```txt
+{
+  Type: Exception,
+  Message: The Message,
+  StackTrace: at ThrowsTests.MethodThatThrows()
+}
+```
+
+`Throws` also accepts a `Func<object?>` for methods that return a value:
+
+```cs
+[Fact]
+public Task TestFuncThatThrows() =>
+    Throws(() => MethodThatReturnsButThrows());
+```
+
+## Async methods
+
+Use `ThrowsTask` for methods returning `Task`:
+
+```cs
+static async Task MethodThatThrowsTask()
+{
+    await Task.Delay(1);
+    throw new("The Message");
+}
+
+[Fact]
+public Task TestMethodThatThrowsTask() =>
+    ThrowsTask(MethodThatThrowsTask);
+```
+
+Use `ThrowsValueTask` for methods returning `ValueTask`:
+
+```cs
+static async ValueTask MethodThatThrowsValueTask()
+{
+    await Task.Delay(1);
+    throw new("The Message");
+}
+
+[Fact]
+public Task TestMethodThatThrowsValueTask() =>
+    ThrowsValueTask(MethodThatThrowsValueTask);
+```
+
+Both `ThrowsTask` and `ThrowsValueTask` also have `<T>` generic overloads for methods that return `Task<T>` or `ValueTask<T>`.
+
+## Ignoring the stack trace
+
+Stack traces are often noisy and fragile — a refactor can change line numbers and break the snapshot. Use `IgnoreStackTrace` to exclude the stack trace from the snapshot.
+
+<Tabs>
+  <Tab title="Fluent">
+    ```cs
+    [Fact]
+    public Task TestMethodThatThrowsIgnoreStackTraceFluent() =>
+        Throws(MethodThatThrows)
+            .IgnoreStackTrace();
+    ```
+  </Tab>
+  <Tab title="Settings">
+    ```cs
+    [Fact]
+    public Task TestMethodThatThrowsIgnoreStackTraceSettings()
+    {
+        var settings = new VerifySettings();
+        settings.IgnoreStackTrace();
+        return Throws(MethodThatThrows, settings);
+    }
+    ```
+  </Tab>
+  <Tab title="Global">
+    ```cs
+    [ModuleInitializer]
+    public static void Initialize() =>
+        VerifierSettings.IgnoreStackTrace();
+    ```
+  </Tab>
+</Tabs>
+
+Result without stack trace:
+
+```txt
+{
+  Type: Exception,
+  Message: The Message
+}
+```
+
+## Accessing the exception from VerifyResult
+
+All `Throws*` methods return a `VerifyResult`. The captured `Exception` is available on `result.Exception`:
+
+```cs
+var result = await Throws(MethodThatThrows);
+Assert.NotNull(result.Exception);
+Assert.Equal("The Message", result.Exception.Message);
+```
+
+See [VerifyResult](/api/verify-result) for full details.
+
+## What happens if the method does not throw
+
+If the target method completes without throwing, `Throws` / `ThrowsTask` / `ThrowsValueTask` immediately throw an `InvalidOperationException` with the message `"Did not throw."`.
+
+## Settings
+
+All `Throws*` methods accept an optional `VerifySettings` instance or support fluent configuration. See [VerifySettings](/api/verify-settings) for available options including scrubbing, file naming, and auto-verify.

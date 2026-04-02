@@ -1,0 +1,337 @@
+---
+title: "Parameterised tests"
+description: "Run data-driven snapshot tests with automatic per-case file naming across NUnit, xUnit, MSTest, and more."
+---
+
+Verify automatically generates a unique snapshot file for each parameterised test case. The parameters become part of the file name, so each case has its own `.verified.` file.
+
+## File naming
+
+The file name format for a parameterised test is:
+
+```txt
+{TestClassName}.{TestMethodName}_ParamName=ParamValue.verified.txt
+```
+
+A test with two parameters `param1` and `param2`, called with `value1a`/`value2a` and `value1b`/`value2b`, produces:
+
+```txt
+MyTest.MyMethod_param1=value1a_param2=value2a.verified.txt
+MyTest.MyMethod_param1=value1b_param2=value2b.verified.txt
+```
+
+<Note>
+Characters that cannot be used in a file name are replaced with a dash (`-`).
+</Note>
+
+## Framework usage
+
+<Tabs>
+  <Tab title="NUnit">
+    Verify.NUnit automatically detects method parameters, so `UseParameters()` is only needed for custom or complex parameter types.
+
+    ### TestCase
+
+    ```cs
+    [TestCase("Value1")]
+    [TestCase("Value2")]
+    public Task TestCaseUsage(string arg) =>
+        Verify(arg);
+    ```
+
+    ### TestFixtureSource
+
+    When using `TestFixtureSource`, NUnit provides the parameter name as part of the test method name automatically.
+
+    ```cs
+    [TestFixtureSource(nameof(FixtureArgs))]
+    public class TestFixtureSourceUsage(string arg1, int arg2)
+    {
+        [Test]
+        public Task Test() =>
+            Verify(
+                new
+                {
+                    arg1,
+                    arg2
+                });
+
+        static object[] FixtureArgs =
+        [
+            new object[] { "Value1", 1 },
+            new object[] { "Value2", 2 }
+        ];
+    }
+    ```
+
+    This produces:
+
+    ```txt
+    TestFixtureSourceUsage.Test_arg1=Value1_arg2=1.verified.txt
+    TestFixtureSourceUsage.Test_arg1=Value2_arg2=2.verified.txt
+    ```
+
+    ### UseParameters() subset
+
+    You can pass a subset of parameters to control which ones appear in the file name:
+
+    ```cs
+    [TestCase("Value1", "Value2", "Value3")]
+    public Task UseParametersSubSet(string arg1, string arg2, string arg3)
+    {
+        var somethingToVerify = $"{arg1} {arg2} {arg3} some text";
+        return Verify(somethingToVerify)
+            .UseParameters(arg1, arg2);
+    }
+    ```
+
+    This produces `ParametersSample.UseParametersSubSet_arg1=Value1_arg2=Value2.verified.txt`.
+  </Tab>
+
+  <Tab title="xUnit v3">
+    Verify.XunitV3 automatically detects built-in types (`string`, `int`, `bool`, etc.). For complex parameter types, call `UseParameters()` explicitly.
+
+    ### InlineData
+
+    ```cs
+    [Theory]
+    [InlineData("Value1")]
+    [InlineData("Value2")]
+    public Task InlineDataUsage(string arg) =>
+        Verify(arg);
+    ```
+
+    ### MemberData
+
+    ```cs
+    [Theory]
+    [MemberData(nameof(GetData))]
+    public Task MemberDataUsage(string arg) =>
+        Verify(arg);
+
+    public static IEnumerable<object[]> GetData()
+    {
+        yield return ["Value1"];
+        yield return ["Value2"];
+    }
+    ```
+
+    ### UseParameters() for complex types
+
+    ```cs
+    [Theory]
+    [InlineData("Value1")]
+    [InlineData("Value2")]
+    public Task UseParametersUsage(string arg)
+    {
+        var somethingToVerify = $"{arg} some text";
+        return Verify(somethingToVerify)
+            .UseParameters(arg);
+    }
+    ```
+
+    ### UseParameters() subset
+
+    ```cs
+    [Theory]
+    [InlineData("Value1", "Value2", "Value3")]
+    public Task UseParametersSubSet(string arg1, string arg2, string arg3)
+    {
+        var somethingToVerify = $"{arg1} {arg2} {arg3} some text";
+        return Verify(somethingToVerify)
+            .UseParameters(arg1, arg2);
+    }
+    ```
+  </Tab>
+
+  <Tab title="MSTest">
+    Verify.MSTest automatically detects method parameters, so `UseParameters()` is only needed for custom parameters.
+
+    ### DataRow
+
+    ```cs
+    [TestMethod]
+    [DataRow("Value1")]
+    [DataRow("Value2")]
+    public Task DataRowUsage(string arg) =>
+        Verify(arg);
+    ```
+
+    ### UseParameters() subset
+
+    ```cs
+    [TestMethod]
+    [DataRow("Value1", "Value2", "Value3")]
+    public Task UseParametersSubSet(string arg1, string arg2, string arg3)
+    {
+        var somethingToVerify = $"{arg1} {arg2} {arg3} some text";
+        return Verify(somethingToVerify)
+            .UseParameters(arg1, arg2);
+    }
+    ```
+  </Tab>
+
+  <Tab title="TUnit / Fixie / Expecto">
+    TUnit and Fixie automatically detect parameters — `UseParameters()` is not required. Parameters should not be passed to `IgnoreParametersForVerified()` for these frameworks.
+
+    Expecto is supported via the community adapter. Consult the respective adapter's documentation for parameter naming conventions.
+  </Tab>
+</Tabs>
+
+## Custom parameter names
+
+For complex types where the parameter information cannot be automatically derived, Verify falls back to `ToString()`. Use `VerifierSettings.NameForParameter<T>()` to provide a custom string:
+
+```cs
+[ModuleInitializer]
+public static void Initialize() =>
+    VerifierSettings.NameForParameter<ComplexData>(_ => _.Value);
+```
+
+## Overriding parameter text
+
+`UseTextForParameters()` replaces the auto-generated `{Parameters}` segment in the file name. The file name pattern is:
+
+```txt
+{Directory}/{TestClassName}.{TestMethodName}_{Parameters}_{UniqueFor…}.verified.{extension}
+```
+
+<Tabs>
+  <Tab title="Instance">
+    ```cs
+    [TestCase("Value1")]
+    [TestCase("Value2")]
+    public Task UseTextForParameters(string arg)
+    {
+        var settings = new VerifySettings();
+        settings.UseTextForParameters(arg);
+        return Verify(arg + "UseTextForParameters", settings);
+    }
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    [TestCase("Value1")]
+    [TestCase("Value2")]
+    public Task UseTextForParametersFluent(string arg) =>
+        Verify(arg + "UseTextForParametersFluent")
+            .UseTextForParameters(arg);
+    ```
+  </Tab>
+</Tabs>
+
+These produce `TheTest.UseTextForParameters_Value1.verified.txt` and `TheTest.UseTextForParameters_Value2.verified.txt`.
+
+## Ignoring parameters for the verified file name
+
+By default every parameterised case produces a uniquely named verified file. Call `IgnoreParametersForVerified()` to share a single verified file across all cases while keeping per-case received files:
+
+```txt
+NamerTests.IgnoreParametersForVerified_arg=One.received.txt
+NamerTests.IgnoreParametersForVerified_arg=Two.received.txt
+NamerTests.IgnoreParametersForVerified.verified.txt       ← shared
+```
+
+<Warning>
+For xUnit and MSTest you must pass the parameter values into `IgnoreParametersForVerified()`. For NUnit, TUnit, and Fixie, pass no arguments.
+</Warning>
+
+<Tabs>
+  <Tab title="NUnit — instance">
+    ```cs
+    [TestCase("One")]
+    [TestCase("Two")]
+    public Task IgnoreParametersForVerified(string arg)
+    {
+        var settings = new VerifySettings();
+        settings.IgnoreParametersForVerified();
+        return Verify("value", settings);
+    }
+    ```
+  </Tab>
+  <Tab title="NUnit — fluent">
+    ```cs
+    [TestCase("One")]
+    [TestCase("Two")]
+    public Task IgnoreParametersForVerifiedFluent(string arg) =>
+        Verify("value")
+            .IgnoreParametersForVerified();
+    ```
+  </Tab>
+  <Tab title="xUnit v3 — instance">
+    ```cs
+    [Theory]
+    [InlineData("One")]
+    [InlineData("Two")]
+    public Task IgnoreParametersForVerified(string arg)
+    {
+        var settings = new VerifySettings();
+        settings.IgnoreParametersForVerified(arg);
+        return Verify("value", settings);
+    }
+    ```
+  </Tab>
+  <Tab title="xUnit v3 — fluent">
+    ```cs
+    [Theory]
+    [InlineData("One")]
+    [InlineData("Two")]
+    public Task IgnoreParametersForVerifiedFluent(string arg) =>
+        Verify("value")
+            .IgnoreParametersForVerified(arg);
+    ```
+  </Tab>
+  <Tab title="MSTest — instance">
+    ```cs
+    [TestMethod]
+    [DataRow("One")]
+    [DataRow("Two")]
+    public Task IgnoreParametersForVerified(string arg)
+    {
+        var settings = new VerifySettings();
+        settings.IgnoreParametersForVerified(arg);
+        return Verify("value", settings);
+    }
+    ```
+  </Tab>
+  <Tab title="MSTest — fluent">
+    ```cs
+    [TestMethod]
+    [DataRow("One")]
+    [DataRow("Two")]
+    public Task IgnoreParametersForVerifiedFluent(string arg) =>
+        Verify("value")
+            .IgnoreParametersForVerified(arg);
+    ```
+  </Tab>
+</Tabs>
+
+### Global parameter exclusion
+
+`VerifierSettings.IgnoreParameters()` globally excludes specific parameters by name across the entire test suite. Call it before any test runs, typically in a `[ModuleInitializer]`:
+
+```cs
+[ModuleInitializer]
+public static void Init() =>
+    VerifierSettings.IgnoreParameters("arg");
+```
+
+Passing an empty list ignores all parameters. Parameters that do not exist on a given test method are silently skipped. Received files still contain all parameter values.
+
+## Ignoring constructor parameters
+
+`VerifierSettings.IgnoreConstructorParameters()` excludes class constructor arguments from the verified file name. This is useful when infrastructure fixtures (e.g. `TestFixtureSource`) inject dependencies via the constructor that should not affect snapshot names:
+
+```cs
+[ModuleInitializer]
+public static void Init() =>
+    VerifierSettings.IgnoreConstructorParameters();
+```
+
+You can also apply it per test:
+
+```cs
+await Verify(result).IgnoreConstructorParameters();
+```
+
+Received files still contain all constructor argument values.

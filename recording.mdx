@@ -1,0 +1,275 @@
+---
+title: "Recording"
+description: "Capture data statically during a test run and include it automatically in the snapshot without threading it through the call stack."
+---
+
+Recording lets you collect information from any point in your code during a test and include it in the verified snapshot. The main benefit is that extensions and lower-level code can call `Recording.Add()` without needing to return data up through the test method.
+
+## Basic usage
+
+Call `Recording.Start()` before the code under test runs, then let Verify include the recorded items in the snapshot automatically:
+
+```cs
+[Fact]
+public Task Usage()
+{
+    Recording.Start();
+    Recording.Add("name", "value");
+    return Verify("TheValue");
+}
+```
+
+This produces:
+
+```txt
+{
+  target: TheValue,
+  name: value
+}
+```
+
+## TryAdd
+
+Calling `Recording.Add()` before `Recording.Start()` throws an exception. Use `Recording.TryAdd()` to add an item only when recording is active (`Recording.IsRecording` is `true`):
+
+```cs
+[Fact]
+public Task TryAdd()
+{
+    // Recording.Add here would throw — Start has not been called yet
+    Recording.TryAdd("name1", "value1");
+    Recording.Start();
+    Recording.TryAdd("name2", "value2");
+    return Verify("TheValue");
+}
+```
+
+## Scoped recording
+
+Use `Recording.Start()` inside a `using` block to limit the recording window. Items added outside the scope are ignored:
+
+```cs
+[Fact]
+public Task RecordingScoped()
+{
+    using (Recording.Start())
+    {
+        Recording.Add("name1", "value1");
+    }
+
+    // Ignored — recording has stopped
+    Recording.Add("name2", "value2");
+    return Verify();
+}
+```
+
+Result:
+
+```txt
+{
+  name1: value1
+}
+```
+
+## Grouping
+
+Multiple items added under the same key are grouped into a list:
+
+```cs
+[Fact]
+public Task SameKey()
+{
+    Recording.Start();
+    Recording.Add("name", "value1");
+    Recording.Add("name", "value2");
+    return Verify("TheValue");
+}
+```
+
+Result:
+
+```txt
+{
+  target: TheValue,
+  name: [
+    value1,
+    value2
+  ]
+}
+```
+
+To avoid grouping, use [Stop](#stop) and handle the data manually.
+
+## Case is ignored
+
+Key lookup is case-insensitive; keys are stored as provided:
+
+```cs
+[Fact]
+public Task Case()
+{
+    Recording.Start();
+    Recording.Add("name", "value1");
+    Recording.Add("Name", "value2");
+    return Verify("TheValue");
+}
+```
+
+Result:
+
+```txt
+{
+  target: TheValue,
+  name: value1,
+  Name: value2
+}
+```
+
+## Identifier
+
+When multiple recording sessions need to run concurrently (for example in parallel tests), use an identifier to keep them separate. The identifier should be statically unique — for example a fully qualified test name or a GUID:
+
+```cs
+[Fact]
+public Task Identifier()
+{
+    Recording.Start("identifier");
+    Recording.Add("identifier", "name", "value");
+    return Verify(Recording.Stop("identifier"));
+}
+```
+
+Result:
+
+```txt
+[
+  {
+    name: value
+  }
+]
+```
+
+## Stop
+
+Call `Recording.Stop()` to end recording and retrieve the collected items for manual inspection or filtering before verifying:
+
+```cs
+[Fact]
+public Task Stop()
+{
+    Recording.Start();
+    Recording.Add("name1", "value1");
+    Recording.Add("name2", "value2");
+    var appends = Recording.Stop();
+    return Verify(appends.Where(_ => _.Name != "name1"));
+}
+```
+
+Result:
+
+```txt
+[
+  {
+    name2: value2
+  }
+]
+```
+
+<Note>
+When `Stop()` is called, the recorded items are **not** included in the snapshot automatically. You must pass them to `Verify()` yourself.
+</Note>
+
+```cs
+[Fact]
+public Task StopNotInResult()
+{
+    Recording.Start();
+    Recording.Add("name1", "value1");
+    Recording.Add("name2", "value2");
+    Recording.Stop();
+    return Verify("other data"); // recorded items are absent
+}
+```
+
+Result:
+
+```txt
+other data
+```
+
+## IsRecording
+
+Check whether recording is currently active before performing expensive data capture:
+
+```cs
+[Fact]
+public void IsRecording()
+{
+    Assert.False(Recording.IsRecording());
+    Recording.Start();
+    Assert.True(Recording.IsRecording());
+}
+```
+
+## Clear
+
+Discard all currently recorded items without stopping the recording session:
+
+```cs
+[Fact]
+public Task Clear()
+{
+    Recording.Start();
+    Recording.Add("name1", "value1");
+    Recording.Clear();
+    Recording.Add("name2", "value2");
+    return Verify();
+}
+```
+
+Result:
+
+```txt
+{
+  name2: value2
+}
+```
+
+## Pause and resume
+
+Temporarily suspend recording without ending the session:
+
+```cs
+[Fact]
+public Task PauseResume()
+{
+    Recording.Start();
+    Recording.Pause();
+    Recording.Add("name1", "value1"); // ignored
+    Recording.Resume();
+    Recording.Add("name2", "value2"); // captured
+    Recording.Pause();
+    Recording.Add("name3", "value3"); // ignored
+    return Verify();
+}
+```
+
+Result:
+
+```txt
+{
+  name2: value2
+}
+```
+
+## Extensions that use recording
+
+The following Verify extensions use the Recording API to transparently inject captured data into snapshots:
+
+- [Verify.EntityFramework](https://github.com/VerifyTests/Verify.EntityFramework#recording) — EF Core queries and commands
+- [Verify.Http](https://github.com/VerifyTests/Verify.Http) — HTTP calls
+- [Verify.MicrosoftLogging](https://github.com/VerifyTests/Verify.MicrosoftLogging) — `ILogger` log entries
+- [Verify.NServiceBus](https://github.com/VerifyTests/Verify.NServiceBus#recording) — NServiceBus messages
+- [Verify.Serilog](https://github.com/VerifyTests/Verify.Serilog) — Serilog events
+- [Verify.SqlServer](https://github.com/VerifyTests/Verify.SqlServer#recording) — SQL statements
+- [Verify.ZeroLog](https://github.com/VerifyTests/Verify.ZeroLog) — ZeroLog entries

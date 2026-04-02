@@ -1,0 +1,267 @@
+---
+title: "Test Frameworks"
+description: "Setup guides and working examples for every test framework supported by Verify."
+---
+
+Verify supports six .NET test frameworks. Each has its own NuGet package. The `Verify()` call is the same across all frameworks — only the package and any framework-specific setup differs.
+
+<Tabs>
+  <Tab title="NUnit">
+    ## NUnit
+
+    **Package:** `Verify.NUnit`
+
+    ```bash
+    dotnet add package Verify.NUnit
+    ```
+
+    No additional setup is required. Inherit from nothing and call `Verify()` directly:
+
+    ```cs
+    [TestFixture]
+    public class Sample
+    {
+        [Test]
+        public Task Test()
+        {
+            var person = ClassBeingTested.FindPerson();
+            return Verify(person);
+        }
+    }
+    ```
+
+    Make sure `<ImplicitUsings>enable</ImplicitUsings>` is set in your project file, or use `Verifier.Verify()` instead of `Verify()`.
+  </Tab>
+
+  <Tab title="xUnit v3">
+    ## xUnit v3
+
+    **Package:** `Verify.XunitV3`
+
+    ```bash
+    dotnet add package Verify.XunitV3
+    ```
+
+    No additional setup is required:
+
+    ```cs
+    public class Sample
+    {
+        [Fact]
+        public Task Test()
+        {
+            var person = ClassBeingTested.FindPerson();
+            return Verify(person);
+        }
+    }
+    ```
+
+    Make sure `<ImplicitUsings>enable</ImplicitUsings>` is set in your project file, or use `Verifier.Verify()` instead of `Verify()`.
+  </Tab>
+
+  <Tab title="MSTest">
+    ## MSTest
+
+    **Package:** `Verify.MSTest`
+
+    ```bash
+    dotnet add package Verify.MSTest
+    ```
+
+    The MSTest implementation uses a [Source Generator](https://learn.microsoft.com/en-us/dotnet/csharp/roslyn-sdk/source-generators-overview). Test classes must opt in. Note the `partial` keyword on the class.
+
+    ```cs
+    [TestClass]
+    public partial class Sample
+    {
+        [TestMethod]
+        public Task Test()
+        {
+            var person = ClassBeingTested.FindPerson();
+            return Verify(person);
+        }
+    }
+    ```
+
+    ### Marking tests as using Verify
+
+    You must opt each class (or the whole assembly) into the source generator using one of these approaches:
+
+    **Per assembly** — add to any file in your test project:
+
+    ```cs
+    [assembly: UsesVerify]
+    ```
+
+    **Per class:**
+
+    ```cs
+    [UsesVerify]
+    [TestClass]
+    public partial class Sample
+    {
+        // ...
+    }
+    ```
+
+    **Via inheritance** — inherit from `VerifyBase` instead:
+
+    ```cs
+    [TestClass]
+    public class Sample : VerifyBase
+    {
+        [TestMethod]
+        public Task Test() =>
+            Verify("The content");
+    }
+    ```
+  </Tab>
+
+  <Tab title="TUnit">
+    ## TUnit
+
+    **Package:** `Verify.TUnit`
+
+    ```bash
+    dotnet add package Verify.TUnit
+    ```
+
+    No additional setup is required:
+
+    ```cs
+    public class Sample
+    {
+        [Test]
+        public Task Test()
+        {
+            var person = ClassBeingTested.FindPerson();
+            return Verify(person);
+        }
+    }
+    ```
+
+    Make sure `<ImplicitUsings>enable</ImplicitUsings>` is set in your project file, or use `Verifier.Verify()` instead of `Verify()`.
+  </Tab>
+
+  <Tab title="Fixie">
+    ## Fixie
+
+    **Package:** `Verify.Fixie`
+
+    ```bash
+    dotnet add package Verify.Fixie
+    ```
+
+    The test itself is straightforward — public methods with no return type annotation are discovered as tests:
+
+    ```cs
+    public class Sample
+    {
+        public Task Test()
+        {
+            var person = ClassBeingTested.FindPerson();
+            return Verify(person);
+        }
+    }
+    ```
+
+    ### Required setup: TestProject
+
+    Fixie is less opinionated than other frameworks and requires explicit configuration. You must implement `ITestProject` and `IExecution` to integrate Verify:
+
+    ```cs
+    public class TestProject :
+        ITestProject,
+        IExecution
+    {
+        public void Configure(TestConfiguration configuration, TestEnvironment environment)
+        {
+            VerifierSettings.AssignTargetAssembly(environment.Assembly);
+            configuration.Conventions.Add<DefaultDiscovery, TestProject>();
+        }
+
+        public async Task Run(TestSuite testSuite)
+        {
+            foreach (var testClass in testSuite.TestClasses)
+            {
+                foreach (var test in testClass.Tests)
+                {
+                    if (test.HasParameters)
+                    {
+                        foreach (var parameters in test
+                                     .GetAll<TestCase>()
+                                     .Select(_ => _.Parameters))
+                        {
+                            using (ExecutionState.Set(testClass, test, parameters))
+                            {
+                                await test.Run(parameters);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        using (ExecutionState.Set(testClass, test, null))
+                        {
+                            await test.Run();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ```
+
+    The key requirements are:
+
+    - Call `VerifierSettings.AssignTargetAssembly` in `ITestProject.Configure`
+    - Wrap each test execution with `ExecutionState.Set` in `IExecution.Run`
+
+    See the [Fixie wiki](https://github.com/fixie/fixie/wiki/Customizing-the-Test-Project-Lifecycle#the-default-convention) for more on the `ITestProject` and `IExecution` interfaces.
+  </Tab>
+
+  <Tab title="Expecto">
+    ## Expecto (F#)
+
+    **Package:** `Verify.Expecto`
+
+    ```bash
+    dotnet add package Verify.Expecto
+    ```
+
+    Use `Verifier.Verify` with an explicit test name as the first argument:
+
+    ```fsharp
+    open Expecto
+    open VerifyTests
+    open VerifyExpecto
+
+    [<Tests>]
+    let tests =
+        testTask "findPerson" {
+            let person = ClassBeingTested.FindPerson()
+            do! Verifier.Verify("findPerson", person).ToTask()
+        }
+    ```
+
+    <Warning>
+      Due to the nature of the Expecto implementation, the following APIs are not supported:
+
+      - `settings.UseParameters()`
+      - `settings.UseTextForParameters()`
+    </Warning>
+  </Tab>
+</Tabs>
+
+## ImplicitUsings
+
+All C# examples assume `<ImplicitUsings>enable</ImplicitUsings>` in the test project file. This allows calling `Verify()` directly. Without it, use `Verifier.Verify()`.
+
+```xml
+<ImplicitUsings>enable</ImplicitUsings>
+```
+
+## Next steps
+
+- [Quickstart](/quickstart) — Step-by-step walkthrough with xUnit v3.
+- [Snapshot workflow](/snapshot-workflow) — How received and verified files work.
+- [Scrubbing](/scrubbing) — Control which values are scrubbed from snapshots.

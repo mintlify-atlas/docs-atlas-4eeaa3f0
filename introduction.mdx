@@ -1,0 +1,119 @@
+---
+title: "Introduction"
+description: "Verify is a snapshot testing library for .NET that simplifies assertions of complex data models and documents."
+---
+
+## What is Verify?
+
+Verify is a snapshot testing library for .NET. Instead of writing hand-crafted assertions for every field on a complex object, you call `Verify()` and the result is serialized to a file. The next time the test runs, Verify compares the new output to the stored snapshot — the test passes if they match, and fails with a diff if they don't.
+
+This approach scales well for complex objects, large documents, API responses, and any output that would otherwise require many individual assertions to validate.
+
+### Compared to hand-written assertions
+
+```cs
+// Without Verify — tedious and brittle
+Assert.Equal("John", person.GivenNames);
+Assert.Equal("Smith", person.FamilyName);
+Assert.Equal("Jill", person.Spouse);
+Assert.Equal("4 Puddle Lane", person.Address.Street);
+Assert.Equal("USA", person.Address.Country);
+Assert.Equal(2, person.Children.Count);
+// ...and so on for every field
+
+// With Verify — one line covers the whole object
+return Verify(person);
+```
+
+Snapshot tests are also easier to update: when your data model changes intentionally, you accept the new snapshot and the diff is committed alongside your code, making code review fast and precise.
+
+## How Verify works
+
+<Steps>
+  <Step title="Call Verify() in your test">
+    Pass any object, string, stream, file, or JSON to `Verify()`. Verify serializes the result to a `.received.` file next to your test.
+  </Step>
+  <Step title="Review the diff on first run">
+    The test fails on its first run because no `.verified.` file exists yet. If a diff tool is detected, it opens automatically to show the received output.
+  </Step>
+  <Step title="Accept the snapshot">
+    Review the output and accept it. The `.received.` file is renamed to `.verified.` and committed to source control.
+  </Step>
+  <Step title="Subsequent runs compare automatically">
+    Future test runs serialize the result again and compare it to the `.verified.` file. The test passes if they match, and fails with a diff if they don't.
+  </Step>
+</Steps>
+
+### Received and verified files
+
+Every Verify assertion produces two files:
+
+- **`.received.`** — generated on each test run. Excluded from source control.
+- **`.verified.`** — the accepted snapshot. Committed to source control.
+
+The file names are derived from the test class and method name, for example `Sample.Test.verified.txt`.
+
+### Diff tool integration
+
+When a test fails, Verify launches a [diff tool](https://github.com/VerifyTests/DiffEngine) automatically if one is available. You can accept or reject the change directly in the diff tool, through the [DiffEngineTray](https://github.com/VerifyTests/DiffEngine/blob/main/docs/tray.md), or via the [Rider/ReSharper plugin](https://plugins.jetbrains.com/plugin/17240-verify-support).
+
+## Supported test frameworks
+
+Verify works with all major .NET test frameworks. Each has its own NuGet package with framework-specific setup.
+
+| Framework | Package |
+|-----------|---------|
+| NUnit | `Verify.NUnit` |
+| xUnit v3 | `Verify.XunitV3` |
+| MSTest | `Verify.MSTest` |
+| TUnit | `Verify.TUnit` |
+| Fixie | `Verify.Fixie` |
+| Expecto (F#) | `Verify.Expecto` |
+
+See [Test Frameworks](/test-frameworks) for setup instructions and working examples for each framework.
+
+## Supported runtimes
+
+- net462
+- net472
+- net48
+- net481
+- net6
+- net8
+- net9
+- net10
+
+## Source control conventions
+
+- **Commit all `*.verified.*` files.** These are your accepted snapshots and must be in source control.
+- **Exclude all `*.received.*` files** by adding them to `.gitignore`:
+
+```txt
+*.received.*
+```
+
+If you use `UseSplitModeForUniqueDirectory`, also add:
+
+```txt
+*.received/
+```
+
+## NuGet packages
+
+- [Verify.NUnit](https://nuget.org/packages/Verify.NUnit/)
+- [Verify.XunitV3](https://nuget.org/packages/Verify.XunitV3/)
+- [Verify.MSTest](https://nuget.org/packages/Verify.MSTest/)
+- [Verify.TUnit](https://nuget.org/packages/Verify.TUnit/)
+- [Verify.Fixie](https://nuget.org/packages/Verify.Fixie/)
+- [Verify.Expecto](https://nuget.org/packages/Verify.Expecto/)
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install Verify and write your first snapshot test in minutes.
+  </Card>
+  <Card title="Test frameworks" icon="flask" href="/test-frameworks">
+    Setup guides for NUnit, xUnit, MSTest, TUnit, Fixie, and Expecto.
+  </Card>
+</CardGroup>

@@ -1,0 +1,164 @@
+---
+title: Verify — Objects & Strings
+description: Serialize any .NET object, string, or JSON value to a snapshot file and compare it against the previously verified version.
+---
+
+`Verify(object)` is the primary entry point for snapshot testing. It serializes the target using Argon (a Newtonsoft.Json fork) and stores the result in a `.txt` (or `.json` with strict mode) snapshot file.
+
+## Verifying objects
+
+```cs
+[Fact]
+public Task Test()
+{
+    var person = ClassBeingTested.FindPerson();
+    return Verify(person);
+}
+```
+
+The serialized output (stored in `Sample.Test.verified.txt`):
+
+```txt
+{
+  GivenNames: John,
+  FamilyName: Smith,
+  Spouse: Jill,
+  Address: {
+    Street: 4 Puddle Lane,
+    Country: USA
+  },
+  Children: [
+    Sam,
+    Mary
+  ],
+  Id: Guid_1
+}
+```
+
+<Note>
+GUIDs, `DateTime`s, and other non-deterministic values are automatically replaced with stable placeholders (`Guid_1`, `DateTime_1`, etc.) so that snapshots do not change on every run.
+</Note>
+
+## Verifying strings
+
+Pass a `string` directly to `Verify()` to snapshot its value:
+
+```cs
+[Fact]
+public Task VerifyString() =>
+    Verify("The content to snapshot");
+```
+
+To snapshot a string with a specific file extension (useful for HTML, XML, etc.):
+
+```cs
+[Fact]
+public Task VerifyHtml() =>
+    Verify("<h1>Hello</h1>", "html");
+```
+
+## Verifying JSON
+
+`VerifyJson` converts the input to a `JToken`, applies member ignores, and pretty-prints the result. Use it when the input is already serialized JSON rather than a .NET object.
+
+```cs
+[Fact]
+public Task VerifyJsonString()
+{
+    var json = "{'key': {'msg': 'No action taken'}}";
+    return VerifyJson(json);
+}
+
+[Fact]
+public Task VerifyJsonStream()
+{
+    var json = "{'key': {'msg': 'No action taken'}}";
+    var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+    return VerifyJson(stream);
+}
+
+[Fact]
+public Task VerifyJsonJToken()
+{
+    var json = "{'key': {'msg': 'No action taken'}}";
+    var target = JToken.Parse(json);
+    return Verify(target);
+}
+```
+
+Result (`.txt` file):
+
+```txt
+{
+  key: {
+    msg: No action taken
+  }
+}
+```
+
+## Async overloads
+
+`Verify()` accepts `Task<T>`, `ValueTask<T>`, and `IAsyncEnumerable<T>`. The value is awaited before serialization. Disposal (`IDisposable` / `IAsyncDisposable`) is handled automatically.
+
+```cs
+// Task<T>
+await Verify(repo.GetPersonAsync(id));
+
+// ValueTask<T>
+await Verify(repo.GetPersonValueAsync(id));
+
+// IAsyncEnumerable<T> — collected into a list before serializing
+await Verify(repo.StreamPeopleAsync());
+```
+
+### Async lambda (Func\<Task\<T\>>)
+
+Use an async lambda when you want to combine multiple async calls into a single anonymous object:
+
+```cs
+await Verify(
+    async () => new
+    {
+        Foo = await repo.GetFoo(id),
+        Bars = await repo.GetBars(id)
+    });
+```
+
+## Null values
+
+Passing `null` to `Verify()` is valid and produces a snapshot containing the text `null`.
+
+## Streams and byte arrays
+
+Passing a `Stream` or `byte[]` to `Verify()` invokes binary verification. You must supply the extension so Verify knows how to handle the content:
+
+```cs
+[Fact]
+public Task StreamWithExtension()
+{
+    var stream = new MemoryStream(File.ReadAllBytes("sample.png"));
+    return Verify(stream, "png");
+}
+```
+
+For `FileStream`, the extension is inferred automatically:
+
+```cs
+[Fact]
+public Task FileStream() =>
+    Verify(File.OpenRead("sample.txt"));
+```
+
+See [Verify — Files](/api/verify-file) for file-path based verification.
+
+## Settings
+
+All overloads accept an optional `VerifySettings` instance or support fluent configuration:
+
+```cs
+await Verify(person)
+    .UseDirectory("snapshots")
+    .AddScrubber(s => s.Replace("dynamic", "static"));
+```
+
+See [VerifySettings](/api/verify-settings) for a full list of options.

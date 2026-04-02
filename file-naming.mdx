@@ -1,0 +1,273 @@
+---
+title: "File naming"
+description: "How Verify names snapshot files and how to customize every part of the file name."
+---
+
+Verify derives the file name for each snapshot from the test context. Understanding this convention makes it easier to locate, commit, and manage snapshot files.
+
+## File name format
+
+```txt
+{Directory}/{TestClassName}.{TestMethodName}_{Parameters}_{UniqueFor}.verified.{extension}
+```
+
+Each segment is optional and controlled independently. Only `TestClassName` and `TestMethodName` are present by default.
+
+**Example:** A test class `SampleTests` with a method `FindPerson` produces:
+
+```txt
+SampleTests.FindPerson.verified.txt
+```
+
+## Directory
+
+By default, snapshot files are stored in the same directory as the source file that contains the test.
+
+Override the directory for a single test:
+
+<Tabs>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.UseDirectory("CustomDirectory");
+    await Verify("value", settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify("value")
+        .UseDirectory("CustomDirectory");
+    ```
+  </Tab>
+</Tabs>
+
+Result: `CustomDirectory/TypeName.MethodName.verified.txt`
+
+The path can be absolute or relative to the directory that contains the test file.
+
+### Project-relative directory
+
+Store all snapshots in a single directory relative to the project root:
+
+```cs
+Verifier.UseProjectRelativeDirectory("Snapshots");
+```
+
+### Source-file-relative directory
+
+Store snapshots relative to the source file's directory:
+
+```cs
+Verifier.UseSourceFileRelativeDirectory("Snapshots");
+```
+
+### DerivePathInfo
+
+For full control over the storage location, use `DerivePathInfo`. This is a global setting and is typically configured in a `[ModuleInitializer]`:
+
+```cs
+Verifier.DerivePathInfo(
+    (sourceFile, projectDirectory, type, method) => new(
+        directory: Path.Combine(projectDirectory, "Snapshots"),
+        typeName: type.Name,
+        methodName: method.Name));
+```
+
+Return `null` for any of the values to fall back to the default behavior.
+
+#### Omitting the class name from the path
+
+```cs
+Verifier.DerivePathInfo(
+    (sourceFile, projectDirectory, type, method) =>
+    {
+        var directory = Path.GetDirectoryName(sourceFile)!;
+        return new(
+            directory: Path.Combine(directory, type.NameWithParent()),
+            typeName: string.Empty,
+            methodName: method.Name);
+    });
+```
+
+This places the snapshot under a subdirectory named after the class: `{TypeName}/MethodName.verified.txt`.
+
+## Test class name
+
+The test class name is used as-is by default. Override it with `UseTypeName`:
+
+<Tabs>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.UseTypeName("CustomTypeName");
+    await Verify("value", settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify("value")
+        .UseTypeName("CustomTypeName");
+    ```
+  </Tab>
+</Tabs>
+
+Result: `CustomTypeName.MethodName.verified.txt`
+
+## Test method name
+
+Override the method name segment with `UseMethodName`:
+
+<Tabs>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.UseMethodName("CustomMethodName");
+    await Verify("value", settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify("value")
+        .UseMethodName("CustomMethodNameFluent");
+    ```
+  </Tab>
+</Tabs>
+
+Result: `TestClass.CustomMethodName.verified.txt`
+
+`UseMethodName` also enables multiple `Verify` calls in the same test method without file-name collisions:
+
+```cs
+[Fact]
+public Task MultipleCalls() =>
+    Task.WhenAll(
+        Verify("Value1").UseMethodName("MultipleCalls_1"),
+        Verify("Value2").UseMethodName("MultipleCalls_2"));
+```
+
+## Full file name override
+
+Use `UseFileName` to replace the `{TestClassName}.{TestMethodName}_{Parameters}` portion entirely:
+
+<Tabs>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.UseFileName("CustomFileName");
+    await Verify("value", settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify("value")
+        .UseFileName("CustomFileNameFluent");
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+`UseFileName` is not compatible with `UseTypeName`, `UseMethodName`, or `UseParameters`. Combining them throws an exception. It can be combined with `UseDirectory` and `UniqueFor*`.
+</Warning>
+
+## File extension
+
+The default extension is `.txt`. Pass an explicit extension to `Verify` to override it:
+
+```cs
+[Fact]
+public Task Method() =>
+    Verify(
+        target: """
+                <note>
+                  <to>Joe</to>
+                </note>
+                """,
+        extension: "xml");
+```
+
+Result: `ExtensionSample.Method.verified.xml`
+
+## UniqueFor
+
+`UniqueFor*` appends additional discriminators to the file name. This is useful when the same test is expected to produce different output depending on the runtime, OS, or architecture.
+
+<Tabs>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.UniqueForRuntime();
+    settings.UniqueForRuntimeAndVersion();
+    settings.UniqueForOSPlatform();
+    settings.UniqueForArchitecture();
+    settings.UniqueForAssemblyConfiguration();
+    return Verify("value", settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify("value")
+        .UniqueForRuntime()
+        .UniqueForOSPlatform();
+    ```
+  </Tab>
+</Tabs>
+
+For a project targeting both `netcoreapp3.0` and `net48` running on x64 and x86, this produces files like:
+
+```txt
+UniqueForSample.Runtime.Core.verified.txt
+UniqueForSample.Runtime.Net.verified.txt
+UniqueForSample.RuntimeAndVersion.Core3_0.verified.txt
+UniqueForSample.RuntimeAndVersion.Net4_8.verified.txt
+UniqueForSample.Architecture.X86.verified.txt
+UniqueForSample.Architecture.X64.verified.txt
+```
+
+Access the current runtime strings programmatically:
+
+```cs
+Debug.WriteLine(Namer.Runtime);
+Debug.WriteLine(Namer.RuntimeAndVersion);
+```
+
+## UseUniqueDirectory
+
+Instead of a unique file name within the test directory, produce a unique **directory** containing multiple files. Useful when a single test verifies many files.
+
+```txt
+{CurrentDirectory}/{TestClassName}.{TestMethodName}_{Parameters}_{UniqueFor}/{targetName}.verified.{extension}
+```
+
+```cs
+var settings = new VerifySettings();
+settings.UseUniqueDirectory();
+await Verify("TheValue", settings);
+```
+
+### UseSplitModeForUniqueDirectory
+
+Splits received and verified files into separate directories. Enable globally in a `[ModuleInitializer]`:
+
+```cs
+[ModuleInitializer]
+public static void Init() =>
+    VerifierSettings.UseSplitModeForUniqueDirectory();
+```
+
+<Warning>
+When using split mode, also add `*.received/` to `.gitignore`.
+</Warning>
+
+## Parameterised tests
+
+For parameterised tests, Verify appends the parameter values to the file name automatically. See [Parameterised tests](/parameterised-tests) for full details and framework-specific examples.
+
+## Orphaned verified files
+
+When a test is renamed or deleted, its old `.verified.` file is not removed automatically. To clean up orphaned files:
+
+1. Delete the orphaned `*.verified.*` files.
+2. Re-run the affected tests.
+3. Accept the new snapshots using any of the [snapshot management tools](/snapshot-workflow#snapshot-management-tools).
+
+For bulk cleanup, use the [DiffEngineTray purge feature](https://github.com/VerifyTests/DiffEngine/blob/main/docs/tray.md#purge-verified-files).

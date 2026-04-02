@@ -1,0 +1,373 @@
+---
+title: "Scrubbing"
+description: "Remove or replace non-deterministic values in snapshots so tests remain stable across runs."
+---
+
+Scrubbing transforms the final serialized string before it is compared against the verified file. It is the primary tool for removing non-deterministic values — timestamps, GUIDs, machine names, file-system paths — that would otherwise cause tests to fail on every run.
+
+Multiple scrubbers can be defined at multiple levels and are executed in **reverse order** by default (most recently added runs first). Use `ScrubberLocation.Last` to force a scrubber to run after all others.
+
+## Built-in directory scrubbers
+
+The following path replacements are active by default:
+
+| Replaced value | Placeholder |
+|---|---|
+| Solution directory | `{SolutionDirectory}` |
+| Project directory | `{ProjectDirectory}` |
+| User profile (Windows) | `{UserProfile}` |
+| `AppDomain.CurrentDomain.BaseDirectory` | `{CurrentDirectory}` |
+| `Path.GetTempPath()` | `{TempPath}` |
+
+To disable individual replacements in a `[ModuleInitializer]`:
+
+```cs
+VerifierSettings.DontScrubSolutionDirectory();
+VerifierSettings.DontScrubProjectDirectory();
+VerifierSettings.DontScrubUserProfile();
+```
+
+## GUID scrubbing
+
+By default, GUIDs are replaced with a stable counter. Each unique GUID seen during a single verification gets its own counter, so the same GUID always maps to the same label.
+
+```cs
+var guid = Guid.NewGuid();
+var target = new GuidTarget
+{
+    Guid = guid,
+    GuidNullable = guid,
+    GuidString = guid.ToString(),
+    OtherGuid = Guid.NewGuid()
+};
+
+await Verify(target);
+```
+
+Result:
+
+```txt
+{
+  Guid: Guid_1,
+  GuidNullable: Guid_1,
+  GuidString: Guid_1,
+  OtherGuid: Guid_2
+}
+```
+
+### Disable GUID scrubbing
+
+<Tabs>
+  <Tab title="Global">
+    ```cs
+    VerifierSettings.DontScrubGuids();
+    ```
+  </Tab>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.DontScrubGuids();
+    await Verify(target, settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify(target)
+        .DontScrubGuids();
+    ```
+  </Tab>
+</Tabs>
+
+### Inline GUIDs
+
+Scrub GUIDs embedded in arbitrary strings:
+
+<Tabs>
+  <Tab title="Global">
+    ```cs
+    [ModuleInitializer]
+    public static void Init() =>
+        VerifierSettings.ScrubInlineGuids();
+    ```
+  </Tab>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.ScrubInlineGuids();
+    return Verify("content 651ad409-fc30-4b12-a47e-616d3f953e4c content", settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify("content 651ad409-fc30-4b12-a47e-616d3f953e4c content")
+        .ScrubInlineGuids();
+    ```
+  </Tab>
+</Tabs>
+
+### Named GUIDs
+
+Give a specific GUID a human-readable name so it appears as that name in snapshots:
+
+```cs
+var guid = new Guid("c8eeaf99-d5c4-4341-8543-4597c3fd40d9");
+
+// Instance
+settings.AddNamedGuid(guid, "orderId");
+
+// Fluent — name can be inferred from the variable name
+await Verify(target).AddNamedGuid(guid);
+```
+
+## Date and time scrubbing
+
+By default, `DateTime`, `DateTimeOffset`, `DateOnly`, and `TimeOnly` values are replaced with a counter label, making tests stable when dates change between runs.
+
+```cs
+var dateTime = DateTime.Now;
+var target = new DateTimeTarget
+{
+    DateTime = dateTime,
+    DateTimeOffset = DateTimeOffset.Now,
+    Date = new(dateTime.Year, dateTime.Month, dateTime.Day)
+};
+
+await Verify(target);
+```
+
+Result:
+
+```txt
+{
+  DateTime: DateTime_1,
+  DateTimeOffset: DateTimeOffset_1,
+  Date: Date_1
+}
+```
+
+### Disable date scrubbing
+
+<Tabs>
+  <Tab title="Global">
+    ```cs
+    [ModuleInitializer]
+    public static void ModuleInitializer() =>
+        VerifierSettings.DontScrubDateTimes();
+    ```
+  </Tab>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.DontScrubDateTimes();
+    return Verify(target, settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify(target)
+        .DontScrubDateTimes();
+    ```
+  </Tab>
+</Tabs>
+
+### DisableDateCounting
+
+If many date values are generated rapidly, the counter-based labels (`DateTime_1`, `DateTime_2`, …) can be inconsistent. Switch to the simpler `{Scrubbed}` placeholder instead:
+
+<Tabs>
+  <Tab title="Global">
+    ```cs
+    [ModuleInitializer]
+    public static void ModuleInitializer() =>
+        VerifierSettings.DisableDateCounting();
+    ```
+  </Tab>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.DisableDateCounting();
+    return Verify(target, settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify(target)
+        .DisableDateCounting();
+    ```
+  </Tab>
+</Tabs>
+
+### Inline dates
+
+Scrub dates embedded inside strings using a format string:
+
+<Tabs>
+  <Tab title="Global">
+    ```cs
+    [ModuleInitializer]
+    public static void Init() =>
+        VerifierSettings.ScrubInlineDateTimes("yyyy-MM-dd");
+    ```
+  </Tab>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.ScrubInlineDateTimes("yyyy-MM-dd");
+    return Verify("content 2020-10-20 content", settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify("content 2020-10-20 content")
+        .ScrubInlineDateTimes("yyyy-MM-dd");
+    ```
+  </Tab>
+</Tabs>
+
+### Custom date formats
+
+Register additional date formats to scrub:
+
+```cs
+[ModuleInitializer]
+public static void UseAddExtraDateTimeFormat() =>
+    VerifierSettings.AddExtraDateTimeFormat("yyyy-MM-dd");
+```
+
+### Named dates
+
+Give specific date values a human-readable name:
+
+```cs
+// Instance
+settings.AddNamedDateTime(new(2030, 1, 2), "releaseDate");
+
+// Global
+[ModuleInitializer]
+public static void NamedDatesAndTimesGlobal()
+{
+    VerifierSettings.AddNamedDateTime(new(2030, 1, 1), "namedDateTime");
+    VerifierSettings.AddNamedDate(new(2030, 1, 1), "namedDate");
+    VerifierSettings.AddNamedDateTimeOffset(new(new(2030, 1, 1)), "namedDateTimeOffset");
+}
+```
+
+## Line-based scrubbers
+
+These scrubbers operate on individual lines of the output string.
+
+### ScrubLines
+
+Remove lines that match a predicate:
+
+```cs
+settings.ScrubLines(line => line.Contains("text"));
+```
+
+### ScrubLinesContaining
+
+Remove all lines containing any of the given strings (case-insensitive by default):
+
+```cs
+settings.ScrubLinesContaining("text1", "text2");
+
+// Case-sensitive
+settings.ScrubLinesContaining(StringComparison.Ordinal, "text1", "text2");
+```
+
+### ScrubLinesWithReplace
+
+Replace or remove lines using a transform function. Return `null` to remove the line:
+
+```cs
+settings.ScrubLinesWithReplace(line =>
+{
+    if (line.Contains("LineB"))
+    {
+        return null; // remove the line
+    }
+    return line.ToUpper();
+});
+```
+
+### ScrubEmptyLines
+
+```cs
+await Verify(target).ScrubEmptyLines();
+```
+
+## Environment scrubbers
+
+### ScrubMachineName
+
+Replaces `Environment.MachineName` with `TheMachineName`:
+
+```cs
+settings.ScrubMachineName();
+```
+
+### ScrubUserName
+
+Replaces `Environment.UserName` with `TheUserName`:
+
+```cs
+settings.ScrubUserName();
+```
+
+## Custom scrubbers
+
+Use `AddScrubber` for full control over the output string:
+
+```cs
+settings.AddScrubber(_ => _.Replace("sensitive value", "{Redacted}"));
+```
+
+## Scrubber levels
+
+Scrubbers compose across levels. The example below applies a global scrubber, a class-level scrubber, and a method-level scrubber. Verify applies them in reverse order — method scrubber first, then class, then global — producing `A B C` from `One Two Three`:
+
+```cs
+// Global
+[ModuleInitializer]
+public static void Initialize() =>
+    VerifierSettings.AddScrubber(_ => _.Replace("One", "A"));
+
+// Class
+public ScrubberLevelsSample()
+{
+    classLevelSettings = new();
+    classLevelSettings.AddScrubber(_ => _.Replace("Three", "C"));
+}
+
+// Method (fluent)
+[Fact]
+public Task Usage() =>
+    Verify("One Two Three", classLevelSettings)
+        .AddScrubber(_ => _.Replace("Two", "B"));
+```
+
+Result:
+
+```txt
+A B C
+```
+
+## Disabling all scrubbers
+
+To completely disable scrubbing for a single test (useful when verifying exact values):
+
+<Tabs>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.DisableScrubbers();
+    return Verify(target, settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify(target)
+        .DisableScrubbers();
+    ```
+  </Tab>
+</Tabs>

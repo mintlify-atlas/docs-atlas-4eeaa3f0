@@ -1,0 +1,224 @@
+---
+title: "Converters & comparers"
+description: "Extend Verify to handle binary and custom file types by registering converters that split targets into parts and comparers that define equality for non-text files."
+---
+
+## Converters
+
+A converter splits a single target into its component parts and verifies each part individually. This is useful for types that contain multiple logical outputs — for example, a multi-page TIFF file that you want to verify as one PNG per page.
+
+### Output files
+
+When a converter is registered, verification produces:
+
+- **An info file** containing the target's metadata serialised as JSON.
+  File name: `{TestType}.{TestMethod}.info.verified.txt`
+- **One numbered file per output document** at the specified extension.
+  File name: `{TestType}.{TestMethod}.{Index}.verified.{Extension}`
+
+**Example info file:**
+
+```txt
+{
+  PixelFormat: Format8bppIndexed,
+  Size: 473, 355
+}
+```
+
+### Typed converter
+
+A typed converter matches a specific .NET type. Use `RegisterFileConverter<T>()` and optionally provide a `canConvert` predicate to narrow which instances are handled.
+
+The example below converts a `System.Drawing.Image` (when it is a TIFF) to one PNG per page:
+
+```cs
+VerifierSettings.RegisterFileConverter<Image>(
+
+    canConvert: (target, context) => Equals(target.RawFormat, ImageFormat.Tiff),
+
+    conversion: (image, settings) =>
+    {
+        var pages = image.GetFrameCount(FrameDimension.Page);
+
+        var targets = new List<Target>();
+        for (var index = 0; index < pages; index++)
+        {
+            image.SelectActiveFrame(FrameDimension.Page, index);
+
+            var page = new MemoryStream();
+            image.Save(page, ImageFormat.Png);
+            targets.Add(new("png", page));
+        }
+
+        return new(
+            info: new
+            {
+                image.PixelFormat,
+                image.Size
+            },
+            targets);
+    });
+```
+
+Then verify by passing an `Image` instance:
+
+```cs
+using var stream = File.OpenRead("sample.tif");
+await Verify(Image.FromStream(stream));
+```
+
+The `canConvert` predicate lets you restrict the converter to only handle TIFFs, leaving other image formats to their own converters:
+
+```cs
+canConvert: (target, context) => Equals(target.RawFormat, ImageFormat.Tiff),
+```
+
+### Stream converter (extension-based)
+
+A stream converter matches files by extension rather than by .NET type. Use `RegisterStreamConverter()` to handle a file or stream based on its extension:
+
+```cs
+VerifierSettings.RegisterStreamConverter(
+    extension: "tif",
+    conversion: (name, stream, settings) =>
+    {
+        using var image = Image.FromStream(stream);
+        var pages = image.GetFrameCount(FrameDimension.Page);
+
+        var targets = new List<Target>();
+        for (var index = 0; index < pages; index++)
+        {
+            image.SelectActiveFrame(FrameDimension.Page, index);
+
+            var page = new MemoryStream();
+            image.Save(page, ImageFormat.Png);
+            targets.Add(new("png", page));
+        }
+
+        return new(
+            info: new
+            {
+                image.PixelFormat,
+                image.Size
+            },
+            targets);
+    });
+```
+
+Then verify the file directly:
+
+```cs
+await VerifyFile("sample.tif");
+```
+
+### Cleanup
+
+If a converter opens resources that must be released after verification completes, pass a `cleanup` callback to `ConversionResult`:
+
+```cs
+return new(
+    info: null,
+    "bin",
+    stream: File.OpenRead(withStreamRequiringCleanupPath),
+    cleanup: () =>
+    {
+        File.Delete(withStreamRequiringCleanupPath);
+        return Task.CompletedTask;
+    });
+```
+
+### Pre-packaged converters
+
+Many converters are available as NuGet packages:
+
+- [Verify.Aspose](https://github.com/VerifyTests/VerifyTests.Aspose) — PDF, DOCX, XLSX, PPTX via Aspose
+- [Verify.EntityFramework](https://github.com/VerifyTests/Verify.EntityFramework) — EntityFramework bits
+- [Verify.ImageMagick](https://github.com/VerifyTests/Verify.ImageMagick) — images via Magick.NET
+- [Verify.ImageSharp](https://github.com/VerifyTests/Verify.ImageSharp) — images via ImageSharp
+- [Verify.NServiceBus](https://github.com/NServiceBusExtensions/Verify.NServiceBus) — NServiceBus test contexts
+- [Verify.SqlServer](https://github.com/VerifyTests/Verify.SqlServer) — SQL Server bits
+- [Verify.Syncfusion](https://github.com/VerifyTests/Verify.Syncfusion) — PDF, DOCX, XLSX, PPTX to PNG/CSV/text
+- [Verify.WinForms](https://github.com/VerifyTests/Verify.WinForms) — WinForms UIs
+- [Verify.Xaml](https://github.com/VerifyTests/Verify.Xaml) — XAML UIs
+
+---
+
+## Comparers
+
+A comparer defines how Verify determines whether two non-text (binary) files are equal. Comparers are useful when files can differ in ways that do not represent a meaningful change — for example, rendering differences across operating systems.
+
+### CompareResult
+
+A comparer function returns a `CompareResult`:
+
+- `CompareResult.Equal` — the files match; the test passes.
+- `CompareResult.NotEqual()` — the files differ; the test fails. An optional message is rendered in the failure output.
+
+<Warning>
+If an input is split into multiple files by a converter and a text file fails, all subsequent binary comparisons revert to the default byte-for-byte comparison.
+</Warning>
+
+### Custom comparer
+
+The example below compares only image file sizes (simplified for illustration):
+
+```cs
+static Task<CompareResult> CompareImages(
+    Stream received,
+    Stream verified,
+    IReadOnlyDictionary<string, object> context)
+{
+    // Simplified: compare only byte length
+    if (received.Length == verified.Length)
+    {
+        return Task.FromResult(CompareResult.Equal);
+    }
+
+    var result = CompareResult.NotEqual();
+    return Task.FromResult(result);
+}
+```
+
+### Instance comparer
+
+Apply a comparer to a single test using `UseStreamComparer()`:
+
+```cs
+[Fact]
+public Task InstanceComparer()
+{
+    var settings = new VerifySettings();
+    settings.UseStreamComparer(CompareImages);
+    return VerifyFile("sample.png", settings);
+}
+
+[Fact]
+public Task InstanceComparerFluent() =>
+    VerifyFile("sample.png")
+        .UseStreamComparer(CompareImages);
+```
+
+### Global comparer
+
+Register a comparer for a specific file extension so it applies to all tests:
+
+```cs
+VerifierSettings.RegisterStreamComparer(
+    extension: "png",
+    compare: CompareImages);
+await VerifyFile("TheImage.png");
+```
+
+### Pre-packaged comparers
+
+- [Verify.AngleSharp.Diffing](https://github.com/VerifyTests/Verify.AngleSharp.Diffing) — HTML comparison via AngleSharp.Diffing
+- [Verify.DiffPlex](https://github.com/VerifyTests/Verify.DiffPlex) — text comparison via DiffPlex
+- [Verify.ICSharpCode.Decompiler](https://github.com/VerifyTests/Verify.ICSharpCode.Decompiler) — assemblies and types via ICSharpCode.Decompiler
+- [Verify.ImageHash](https://github.com/VerifyTests/Verify.ImageHash) — perceptual image comparison via ImageHash
+- [Verify.ImageMagick](https://github.com/VerifyTests/Verify.ImageMagick) — image verification and comparison via Magick.NET
+- [Verify.Phash](https://github.com/VerifyTests/Verify.Phash) — perceptual image comparison via Phash
+- [Verify.Quibble](https://github.com/VerifyTests/Verify.Quibble) — object comparison via Quibble
+
+### Default comparison
+
+When no comparer is registered, Verify uses a buffered byte-for-byte comparison reading `8 KB` at a time. Files of different lengths are immediately treated as not equal.

@@ -1,0 +1,132 @@
+---
+title: Verify — Files
+description: Verify the contents of a file on disk. Extension is inferred from the file. Supports text, binary, and multiple files.
+---
+
+`VerifyFile` reads a file from disk and snapshots its contents. The file extension is used to determine whether to treat the file as text or binary, and to set the extension of the generated snapshot file.
+
+## Basic usage
+
+```cs
+[Fact]
+public Task VerifyFilePath() =>
+    VerifyFile("sample.txt");
+```
+
+`VerifyFile` accepts both a `string` path and a `FileInfo`:
+
+```cs
+[Fact]
+public Task VerifyFileInfo() =>
+    VerifyFile(new FileInfo("sample.txt"));
+```
+
+## Optional info
+
+An optional `info` parameter can be added to include extra context alongside the file content. The value is JSON-serialized and stored as the first target in the snapshot.
+
+```cs
+[Fact]
+public Task VerifyFileWithInfo() =>
+    VerifyFile(
+        "sample.txt",
+        info: "the info");
+```
+
+## Custom extension
+
+By default, the file extension is inferred from the file path. To override it:
+
+```cs
+[Fact]
+public Task VerifyFilePathWithExtension() =>
+    VerifyFile("sample.txt", extension: "csv");
+```
+
+## Verifying multiple files
+
+Use `VerifyFiles` to snapshot several files in a single test. Each file name (without extension) becomes the name of the corresponding snapshot target.
+
+```cs
+[Fact]
+public Task Run() =>
+    VerifyFiles(["File1.txt", "File2.txt"]);
+```
+
+### With info
+
+```cs
+[Fact]
+public Task WithInfo() =>
+    VerifyFiles(
+        ["File1.txt", "File2.txt"],
+        info: new
+        {
+            Key = "Value"
+        });
+```
+
+### With file scrubber
+
+A `fileScrubber` allows per-file modifications to text content before snapshotting. It receives the file path and a `StringBuilder` containing the file's text.
+
+```cs
+[Fact]
+public Task WithFileScrubber() =>
+    VerifyFiles(
+        ["File1.txt", "File2.txt"],
+        fileScrubber: (_, builder) =>
+        {
+            builder.Clear();
+            builder.Append("New");
+        });
+```
+
+<Note>
+The `fileScrubber` is only invoked for files that have a known text extension. Binary files are passed through unchanged.
+</Note>
+
+## Binary file verification
+
+Binary data (images, PDFs, etc.) can be verified by passing a `Stream` with the appropriate extension:
+
+```cs
+[Fact]
+public Task StreamWithExtension()
+{
+    var stream = new MemoryStream(File.ReadAllBytes("sample.png"));
+    return Verify(stream, "png");
+}
+```
+
+For a `FileStream`, the extension is inferred automatically from the file name:
+
+```cs
+[Fact]
+public Task FileStream() =>
+    Verify(File.OpenRead("sample.txt"));
+```
+
+### Diff tool for binary files
+
+A diff tool will be launched for binary snapshots only if a tool that supports the given extension is installed (e.g., Beyond Compare for images). If no matching diff tool is found, no diff is displayed.
+
+On first verification, when no `.verified.` file exists yet, Verify uses an empty file of the same extension as a placeholder so the diff tool can open.
+
+## Verifying outside a test
+
+You can use `InnerVerifier` directly to verify a file without a test framework:
+
+```cs
+public async Task VerifyExternalFile()
+{
+    using var verifier = new InnerVerifier(targetDirectory, name: "sample");
+    await verifier.VerifyFile(filePath);
+}
+```
+
+This produces a file at `{targetDirectory}/sample.verified.txt`.
+
+## Settings
+
+All `VerifyFile` overloads accept an optional `VerifySettings` instance or support fluent configuration. See [VerifySettings](/api/verify-settings) for available options.

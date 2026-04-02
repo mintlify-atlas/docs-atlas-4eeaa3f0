@@ -1,0 +1,179 @@
+---
+title: Verify — Directories
+description: Verify all files in a directory or ZIP archive. Each file becomes a separate named snapshot target.
+---
+
+`VerifyDirectory` snapshots every file in a directory. Each file becomes an individually named target inside the snapshot, using its path relative to the root directory as the target name.
+
+Internally this combines `UseUniqueDirectory` with one target per file, so each verified file has a name derived from the relative file path.
+
+## Basic usage
+
+```cs
+[Fact]
+public Task WithDirectory() =>
+    VerifyDirectory(directoryToVerify);
+```
+
+## Filtering
+
+Use `include` to filter which files are verified, `pattern` to restrict by glob, and `options` to control recursion:
+
+```cs
+[Fact]
+public Task WithDirectoryFiltered() =>
+    VerifyDirectory(
+        directoryToVerify,
+        include: filePath => filePath.Contains("Doc"),
+        pattern: "*.txt",
+        options: new()
+        {
+            RecurseSubdirectories = false
+        });
+```
+
+<Note>
+On .NET 6 and later, `options` is an `EnumerationOptions` instance. On earlier frameworks it is a `SearchOption` enum value (`TopDirectoryOnly` or `AllDirectories`).
+</Note>
+
+## Optional info
+
+An `info` parameter can be added to include extra context at the start of the snapshot. The value is JSON-serialized.
+
+```cs
+[Fact]
+public Task VerifyDirectoryWithInfo() =>
+    VerifyDirectory(
+        directoryToVerify,
+        info: "the info");
+```
+
+## File scrubber
+
+The `fileScrubber` delegate lets you modify individual text file contents before snapshotting. It receives the full file path and a `StringBuilder` with the file's text.
+
+```cs
+[Fact]
+public Task VerifyDirectoryWithFileScrubber() =>
+    VerifyDirectory(
+        directoryToVerify,
+        fileScrubber: (path, builder) =>
+        {
+            if (Path.GetFileName(path) == "TextDoc.txt")
+            {
+                builder.Clear();
+                builder.Append("New text");
+            }
+        });
+```
+
+The scrubber is only called for files that have a known text extension as defined by [EmptyFiles `FileExtensions.IsText`](https://github.com/VerifyTests/EmptyFiles#istext).
+
+## Files with no extension
+
+Files without an extension receive `.noextension` appended to the snapshot name (e.g., `myfile.noextension.verified`). By default they are treated as unknown binary files and no diff tool is launched.
+
+To treat extensionless files as text, register a convention using EmptyFiles:
+
+```cs
+[ModuleInitializer]
+public static void InitTextFileConvention() =>
+    FileExtensions.AddTextFileConvention(
+        path =>
+        {
+            var name = Path.GetFileName(path);
+            return name.Equals("TextDocWithoutExtension", StringComparison.OrdinalIgnoreCase);
+        });
+```
+
+---
+
+## Verifying ZIP archives
+
+`VerifyZip` works the same way as `VerifyDirectory` but reads from a ZIP archive. Each entry in the archive becomes a named snapshot target.
+
+```cs
+[Fact]
+public Task WithZip() =>
+    VerifyZip(zipPath);
+```
+
+### Filtering entries
+
+```cs
+[Fact]
+public Task WithZipFiltered() =>
+    VerifyZip(
+        zipPath,
+        include: entry => entry.FullName.Contains("Doc"));
+```
+
+### Optional info
+
+```cs
+[Fact]
+public Task VerifyZipWithInfo() =>
+    VerifyZip(
+        zipPath,
+        info: "the info");
+```
+
+### File scrubber
+
+```cs
+[Fact]
+public Task VerifyZipWithFileScrubber() =>
+    VerifyZip(
+        zipPath,
+        fileScrubber: (path, builder) =>
+        {
+            if (Path.GetFileName(path) == "TextDoc.txt")
+            {
+                builder.Clear();
+                builder.Append("New text");
+            }
+        });
+```
+
+### Including the directory structure
+
+Pass `includeStructure: true` to also produce a `structure.verified.md` file that describes the ZIP's directory layout:
+
+```cs
+[Fact]
+public Task WithZipAndStructure() =>
+    VerifyZip(zipPath, includeStructure: true);
+```
+
+### Persisting the archive file
+
+By default, the original archive is not stored as a verified file. Use `persistArchive: true` to include a copy of the (normalized) ZIP as an additional snapshot target:
+
+```cs
+[Fact]
+public Task WithZipAndPersistArchive() =>
+    VerifyZip(zipPath, persistArchive: true);
+```
+
+The default extension for the persisted archive is `zip`. Override it with `archiveExtension`:
+
+```cs
+[Fact]
+public Task WithZipWithCustomExtension() =>
+    VerifyZip(
+        File.ReadAllBytes(simpleZipPath),
+        persistArchive: true,
+        archiveExtension: "nupkg");
+```
+
+<Note>
+When using `VerifyZip` with a `Stream` overload and the stream is a `FileStream`, the archive extension is inferred from the underlying file name. Similarly, the `string path` overload respects the file extension of the path argument.
+</Note>
+
+### VerifyZip overloads
+
+`VerifyZip` accepts a file path (`string`), a `Stream`, a `byte[]`, or a `ZipArchive` directly.
+
+## Settings
+
+All `VerifyDirectory` and `VerifyZip` overloads accept an optional `VerifySettings` instance or support fluent configuration. See [VerifySettings](/api/verify-settings) for available options.

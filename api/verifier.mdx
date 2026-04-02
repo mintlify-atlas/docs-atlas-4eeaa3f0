@@ -1,0 +1,206 @@
+---
+title: Verifier
+description: The core entry point for all snapshot assertions in Verify. Exposes Verify(), VerifyJson(), VerifyXml(), VerifyZip(), and async overloads.
+---
+
+The `Verifier` class is the entry point for all snapshot assertions. It serializes a target value, writes the result to a `.received.` file, and compares it against the corresponding `.verified.` file.
+
+## How Verify() is accessed
+
+In most test frameworks, `Verify()` is available as an implicit method through a framework-specific base class or source generator — you call it directly without a class prefix:
+
+<CodeGroup>
+
+```cs xUnit v3
+public class MyTests
+{
+    [Fact]
+    public Task Test()
+    {
+        var person = ClassBeingTested.FindPerson();
+        return Verify(person);
+    }
+}
+```
+
+```cs NUnit
+[TestFixture]
+public class MyTests
+{
+    [Test]
+    public Task Test()
+    {
+        var person = ClassBeingTested.FindPerson();
+        return Verify(person);
+    }
+}
+```
+
+```cs MSTest
+[TestClass]
+public partial class MyTests
+{
+    [TestMethod]
+    public Task Test()
+    {
+        var person = ClassBeingTested.FindPerson();
+        return Verify(person);
+    }
+}
+```
+
+</CodeGroup>
+
+<Note>
+If `ImplicitUsings` are enabled in your project, `Verify()` is available without any prefix. If not, use `Verifier.Verify()` instead.
+</Note>
+
+### Using the static Verifier class directly
+
+For Expecto (F#) or scenarios outside a test class, use the static `Verifier` class directly:
+
+```fsharp
+open Expecto
+open VerifyTests
+open VerifyExpecto
+
+[<Tests>]
+let tests =
+    testTask "findPerson" {
+        let person = ClassBeingTested.FindPerson()
+        do! Verifier.Verify("findPerson", person).ToTask()
+    }
+```
+
+You can also use `InnerVerifier` directly to verify files outside of a unit test context:
+
+```cs
+public async Task VerifyExternalFile()
+{
+    using var verifier = new InnerVerifier(targetDirectory, name: "sample");
+    await verifier.VerifyFile(filePath);
+}
+```
+
+## Available Verify methods
+
+<CardGroup cols={2}>
+  <Card title="Verify objects & strings" icon="code" href="/api/verify-object">
+    Serialize any .NET object, string, or JSON to a snapshot. Includes async overloads for `Task<T>`, `ValueTask<T>`, and `IAsyncEnumerable<T>`.
+  </Card>
+  <Card title="Verify files" icon="file" href="/api/verify-file">
+    Verify the contents of a file on disk. Extension is inferred automatically. Supports binary and text files.
+  </Card>
+  <Card title="Verify directories" icon="folder" href="/api/verify-directory">
+    Verify all files in a directory, with optional filtering. Also covers ZIP archive verification.
+  </Card>
+  <Card title="Verify exceptions" icon="triangle-alert" href="/api/verify-throws">
+    Snapshot an exception thrown by a method. Captures type, message, and stack trace.
+  </Card>
+</CardGroup>
+
+## JSON verification
+
+`VerifyJson` parses the input, applies member ignores, and pretty-prints the result:
+
+```cs
+[Fact]
+public Task VerifyJsonString()
+{
+    var json = "{'key': {'msg': 'No action taken'}}";
+    return VerifyJson(json);
+}
+
+[Fact]
+public Task VerifyJsonStream()
+{
+    var json = "{'key': {'msg': 'No action taken'}}";
+    var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+    return VerifyJson(stream);
+}
+```
+
+Result (`.txt` file):
+
+```txt
+{
+  key: {
+    msg: No action taken
+  }
+}
+```
+
+## XML verification
+
+`VerifyXml` parses and pretty-prints XML, applying scrubbers and member ignores:
+
+```cs
+[Fact]
+public Task Xml() =>
+    VerifyXml("<body><node>text</node></body>");
+```
+
+Result (`.xml` file):
+
+```xml
+<body>
+  <node>text</node>
+</body>
+```
+
+Use `.IgnoreMember("node")` or `.ScrubMember("node")` fluently to exclude or redact specific elements.
+
+## ZIP archive verification
+
+`VerifyZip` snapshot-tests every file inside a ZIP archive:
+
+```cs
+[Fact]
+public Task WithZip() =>
+    VerifyZip(zipPath);
+```
+
+See [Verify — Directories](/api/verify-directory) for filtering, `info`, `fileScrubber`, `includeStructure`, and `persistArchive` options.
+
+## Async overloads
+
+`Verify()` accepts `Task<T>`, `ValueTask<T>`, and `IAsyncEnumerable<T>` — the value is awaited before serialization:
+
+```cs
+// Task<T>
+await Verify(repo.GetPersonAsync(id));
+
+// ValueTask<T>
+await Verify(repo.GetPersonValueAsync(id));
+
+// IAsyncEnumerable<T>
+await Verify(repo.StreamPeopleAsync());
+```
+
+There is also a `Func<Task<T>>` overload for async lambdas:
+
+```cs
+await Verify(
+    async () => new
+    {
+        Foo = await repo.GetFoo(id),
+        Bars = await repo.GetBars(id)
+    });
+```
+
+## Configuring verification
+
+All `Verify*` methods accept an optional `VerifySettings` instance for per-test configuration, or you can use the fluent API:
+
+```cs
+// Settings instance
+var settings = new VerifySettings();
+settings.UseDirectory("snapshots");
+await Verify(target, settings);
+
+// Fluent
+await Verify(target)
+    .UseDirectory("snapshots");
+```
+
+For global configuration applied to all tests, see [VerifierSettings](/api/verifier-settings).

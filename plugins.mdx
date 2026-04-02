@@ -1,0 +1,167 @@
+---
+title: "Plugins"
+description: "Extend Verify with community plugins that add comparers, converters, serializer support, and more."
+---
+
+Verify can be extended using plugins shipped as NuGet packages. Each plugin targets one or more of Verify's extension points to add support for new file types, frameworks, or comparison strategies.
+
+## Extension points
+
+Plugins typically manipulate a subset of Verify's extension points:
+
+- **Comparers** — compare non-text files (images, PDFs, binaries)
+- **Converters** — split a target into component parts, then verify each part separately
+- **Serializer settings** — register custom JSON converters or control serialization behavior
+- **Ordering** — control the order of serialized members
+- **Scrubbers** — remove or replace non-deterministic values before comparison
+
+## Enabling plugins
+
+### Static config via ModuleInitializer
+
+Most plugins expose a static `Initialize()` method. Call it from a `ModuleInitializer` in your test project so it runs before any tests execute.
+
+```cs
+public static class ModuleInitializer
+{
+    [ModuleInitializer]
+    public static void Initialize() =>
+        VerifyHttp.Initialize();
+}
+```
+
+### Automatic plugin detection
+
+`VerifierSettings.InitializePlugins()` scans for and initializes all Verify plugins in one call:
+
+```cs
+public static class ModuleInitializer
+{
+    [ModuleInitializer]
+    public static void Initialize() =>
+        VerifierSettings.InitializePlugins();
+}
+```
+
+It works by:
+
+1. Scanning the current assembly's directory for assemblies matching `Verify.*.dll`
+2. Loading each assembly and locating `VerifyTests.[AssemblyName]`
+3. Checking the `Initialized` property — if `true`, skipping to the next assembly
+4. Calling `Initialize()` on the type
+
+### Combining specific and automatic initialization
+
+When a plugin requires parameters or must initialize before others, call it explicitly first, then call `InitializePlugins()` to handle the rest:
+
+```cs
+public static class ModuleInitializer
+{
+    [ModuleInitializer]
+    public static void Initialize()
+    {
+        VerifyNServiceBus.Initialize(captureLogs: true);
+        VerifierSettings.InitializePlugins();
+    }
+}
+```
+
+## Plugin list
+
+<CardGroup cols={2}>
+  <Card title="Verify.AngleSharp" icon="code" href="https://github.com/VerifyTests/Verify.AngleSharp">
+    HTML verification utilities via AngleSharp.
+  </Card>
+  <Card title="Verify.AspNetCore" icon="server" href="https://github.com/VerifyTests/Verify.AspNetCore">
+    Verification of ASP.NET Core middleware, routes, and responses.
+  </Card>
+  <Card title="Verify.Blazor" icon="window-restore" href="https://github.com/VerifyTests/Verify.Blazor">
+    Verification of Blazor component rendering.
+  </Card>
+  <Card title="Verify.Bunit" icon="vial" href="https://github.com/VerifyTests/Verify.Bunit">
+    Verification of Blazor components via bunit.
+  </Card>
+  <Card title="Verify.EntityFramework" icon="database" href="https://github.com/VerifyTests/Verify.EntityFramework">
+    Verification of Entity Framework queries and change tracking.
+  </Card>
+  <Card title="Verify.Http" icon="globe" href="https://github.com/VerifyTests/Verify.Http">
+    Verification of HTTP requests and responses.
+  </Card>
+  <Card title="Verify.ImageSharp" icon="image" href="https://github.com/VerifyTests/Verify.ImageSharp">
+    Verification of images via ImageSharp.
+  </Card>
+  <Card title="Verify.NSubstitute" icon="flask" href="https://github.com/VerifyTests/Verify.NSubstitute">
+    Verification of NSubstitute mock call recordings.
+  </Card>
+  <Card title="Verify.Moq" icon="flask" href="https://github.com/VerifyTests/Verify.Moq">
+    Verification of Moq mock call recordings.
+  </Card>
+  <Card title="Verify.SourceGenerators" icon="wand-magic-sparkles" href="https://github.com/VerifyTests/Verify.SourceGenerators">
+    Verification of C# Source Generator output.
+  </Card>
+  <Card title="Verify.Terminal" icon="terminal" href="https://github.com/VerifyTests/Verify.Terminal">
+    dotnet tool for managing Verify snapshot files from the command line.
+  </Card>
+  <Card title="Verify.HeadlessBrowsers" icon="browser" href="https://github.com/VerifyTests/Verify.HeadlessBrowsers">
+    Verification of web UIs via Playwright, Puppeteer Sharp, or Selenium.
+  </Card>
+  <Card title="Verify.SqlServer" icon="database" href="https://github.com/VerifyTests/Verify.SqlServer">
+    Verification of SQL Server queries and schemas.
+  </Card>
+  <Card title="Verify.Serilog" icon="scroll" href="https://github.com/VerifyTests/Verify.Serilog">
+    Verification of Serilog log output.
+  </Card>
+  <Card title="Verify.MicrosoftLogging" icon="scroll" href="https://github.com/VerifyTests/Verify.MicrosoftLogging">
+    Verification of ILogger log output.
+  </Card>
+  <Card title="Verify.DiffPlex" icon="code-compare" href="https://github.com/VerifyTests/Verify.DiffPlex">
+    Text diff comparison via DiffPlex.
+  </Card>
+  <Card title="Verify.NewtonsoftJson" icon="brackets-curly" href="https://github.com/VerifyTests/Verify.NewtonsoftJson">
+    Support for Newtonsoft.Json types (JObject and JArray).
+  </Card>
+  <Card title="Verify.NodaTime" icon="clock" href="https://github.com/VerifyTests/Verify.NodaTime">
+    Support for NodaTime date and time types.
+  </Card>
+  <Card title="Verify.QuestPDF" icon="file-pdf" href="https://github.com/VerifyTests/Verify.QuestPDF">
+    Verification of PDF documents via QuestPDF.
+  </Card>
+  <Card title="Verify.ClosedXml" icon="table" href="https://github.com/VerifyTests/Verify.ClosedXml">
+    Verification of Excel documents via ClosedXML.
+  </Card>
+</CardGroup>
+
+<Note>
+  This is a selection of popular plugins. See the [full plugin list](https://github.com/VerifyTests/Verify#readme) on GitHub for all 60+ community plugins.
+</Note>
+
+## Writing your own plugin
+
+A plugin is a class library that calls Verify's extension APIs at initialization time. The same extension points available to test code are available to plugins.
+
+To implement the `Initialize` / `Initialized` pattern required by `InitializePlugins()`:
+
+```cs
+namespace VerifyTests;
+
+public static class VerifyMyPlugin
+{
+    public static bool Initialized { get; private set; }
+
+    public static void Initialize()
+    {
+        if (Initialized)
+        {
+            throw new("Already Initialized");
+        }
+
+        Initialized = true;
+
+        // Register converters, comparers, scrubbers, etc. here
+    }
+}
+```
+
+The `Initialized` guard prevents double-initialization when a consumer calls both `MyPlugin.Initialize()` and `VerifierSettings.InitializePlugins()`.
+
+A reference implementation is available at [`src/Verify.SamplePlugin/`](https://github.com/VerifyTests/Verify/tree/main/src/Verify.SamplePlugin) in the Verify repository.

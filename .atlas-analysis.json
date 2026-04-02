@@ -1,23 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "Verify",
+  "projectType": "sdk-library",
+  "projectName": "Verify",
+  "projectDescription": "Verify is a snapshot testing library for .NET that simplifies assertion of complex data models by comparing serialized test results against stored verified files.",
   "theme": "luma",
-  "colors": {
-    "primary": "#94cb04",
-    "light": "#545454"
-  },
-  "favicon": "https://media.brand.dev/288cc7c4-5cef-4376-950b-bdf0083eedae.png",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/VerifyTests/Verify"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/VerifyTests/Verify"
-    }
-  },
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
   "navigation": {
     "tabs": [
       {
@@ -83,5 +71,33 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Snapshot testing for .NET with support for NUnit, xUnit, MSTest, TUnit, Fixie, and Expecto",
+    "Automatic serialization of complex objects to human-readable text for comparison",
+    "Smart scrubbing of non-deterministic values (GUIDs, dates, paths) for stable snapshots",
+    "Integration with diff tools for visual review of snapshot changes",
+    "Extensible plugin ecosystem with 60+ community extensions",
+    "Parameterised test support with automatic file naming",
+    "Custom converters for binary types (images, PDFs, Excel)",
+    "CI/CD integration for uploading received files on build failure"
+  ],
+  "publicApiSurface": [
+    "Verify(target)",
+    "VerifyJson(json)",
+    "VerifyFile(path)",
+    "VerifyDirectory(path)",
+    "VerifyXml(xml)",
+    "VerifyZip(path)",
+    "Throws(action) / ThrowsAsync(func)",
+    "VerifySettings",
+    "VerifierSettings (global settings)",
+    "VerifyResult",
+    "VerifyChecks.Run()",
+    "CurrentFile.Path() / CurrentFile.Directory()",
+    "TempDirectory / TempFile",
+    "VerifierSettings.AddScrubber()",
+    "VerifierSettings.RegisterFileConverter<T>()",
+    "VerifierSettings.UseStrictJson()"
+  ]
 }

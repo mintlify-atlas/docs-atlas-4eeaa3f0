@@ -1,0 +1,94 @@
+---
+title: VerifyResult
+description: The value returned by every Verify() call. Provides access to verified file paths, snapshot text, and the thrown exception (for Throws() verifications).
+---
+
+Every `Verify*` method returns a `Task<VerifyResult>`. In most tests you can simply `return` or `await` the call without inspecting the result. The result is useful when you want to make additional assertions against the verified output after the snapshot comparison has passed.
+
+## Properties
+
+<ResponseField name="Text" type="string">
+  The content of the verified snapshot file as a string. Throws if the result contains no text files, or more than one text file.
+
+  ```cs
+  var result = await Verify(
+      new
+      {
+          Property = "Value To Check"
+      });
+  Assert.Contains("Value To Check", result.Text);
+  ```
+</ResponseField>
+
+<ResponseField name="Files" type="IEnumerable<string>">
+  The paths of all verified files produced by the verification, including both text and binary files.
+
+  ```cs
+  var result = await VerifyFile("report.pdf");
+  foreach (var path in result.Files)
+  {
+      Console.WriteLine(path);
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="TextFiles" type="IEnumerable<string>">
+  The paths of only the text-based verified files (a subset of `Files`).
+</ResponseField>
+
+<ResponseField name="Exception" type="Exception">
+  The exception captured by a `Throws` or `ThrowsTask` call. Throws `InvalidOperationException` if the verification was not a throws-based verification.
+
+  ```cs
+  var result = await Throws(MethodThatThrows);
+  Assert.NotNull(result.Exception);
+  Assert.Equal("The Message", result.Exception.Message);
+  ```
+</ResponseField>
+
+<ResponseField name="Target" type="object?">
+  The raw target object of the verification. For `Throws*` verifications this is the captured `Exception`. For all other verifications, this is the serialized target.
+</ResponseField>
+
+## Examples
+
+### Asserting on text content
+
+```cs
+[Fact]
+public async Task CheckContains()
+{
+    var result = await Verify(
+        new
+        {
+            Property = "Value To Check"
+        });
+    Assert.Contains("Value To Check", result.Text);
+}
+```
+
+### Asserting on the exception from Throws
+
+```cs
+[Fact]
+public async Task CheckException()
+{
+    var result = await Throws(MethodThatThrows);
+    Assert.NotNull(result.Exception);
+}
+```
+
+### Accessing verified file paths
+
+```cs
+[Fact]
+public async Task CheckFiles()
+{
+    var result = await VerifyFile("output.pdf");
+    Assert.Single(result.Files);
+}
+```
+
+<Note>
+`VerifyResult` is only available after the snapshot comparison has passed. If the verification fails (mismatch), a `VerifyException` is thrown before `VerifyResult` is returned.
+</Note>

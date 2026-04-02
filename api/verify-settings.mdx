@@ -1,0 +1,221 @@
+---
+title: VerifySettings
+description: Instance-level settings that configure per-test verification behavior. Passed to Verify() or chained fluently.
+---
+
+`VerifySettings` configures how a single test verification behaves. You can create a settings instance and pass it to any `Verify*` method, or use the fluent API that is returned by `Verify()`.
+
+## Usage
+
+<CodeGroup>
+
+```cs Settings instance
+var settings = new VerifySettings();
+settings.UseDirectory("snapshots");
+settings.AddScrubber(s => s.Replace("dynamic-value", "scrubbed"));
+await Verify(target, settings);
+```
+
+```cs Fluent API
+await Verify(target)
+    .UseDirectory("snapshots")
+    .AddScrubber(s => s.Replace("dynamic-value", "scrubbed"));
+```
+
+</CodeGroup>
+
+## File naming
+
+These methods control how the snapshot file name is constructed. The default format is:
+
+```
+{TestClassName}.{TestMethodName}_{Parameters}_{UniqueFor}.verified.{extension}
+```
+
+<ResponseField name="UseDirectory(string directory)" type="void">
+  Store snapshot files in a custom subdirectory relative to the test source file.
+
+  ```cs
+  settings.UseDirectory("snapshots");
+  ```
+</ResponseField>
+
+<ResponseField name="UseTypeName(string name)" type="void">
+  Override the `{TestClassName}` segment in the file name. Not compatible with `UseFileName`.
+
+  ```cs
+  settings.UseTypeName("CustomClass");
+  ```
+</ResponseField>
+
+<ResponseField name="UseMethodName(string name)" type="void">
+  Override the `{TestMethodName}` segment in the file name. Not compatible with `UseFileName`.
+
+  ```cs
+  settings.UseMethodName("CustomMethod");
+  ```
+</ResponseField>
+
+<ResponseField name="UseFileName(string fileName)" type="void">
+  Fully replace the `{TestClassName}.{TestMethodName}_{Parameters}` portion of the file name. Not compatible with `UseTypeName` or `UseMethodName`.
+
+  ```cs
+  settings.UseFileName("my-snapshot");
+  ```
+</ResponseField>
+
+<ResponseField name="UseExtension(string extension)" type="void">
+  Override the file extension of the snapshot.
+
+  ```cs
+  settings.UseExtension("json");
+  ```
+</ResponseField>
+
+<ResponseField name="UseUniqueDirectory()" type="void">
+  Place all snapshot files for the test in a subdirectory rather than using indexed file names. Useful when a test produces multiple outputs.
+</ResponseField>
+
+## Parameters
+
+<ResponseField name="UseParameters(params object[] parameters)" type="void">
+  Set the parameter values used to compute the `_{Parameters}` portion of the file name. Use this for parameterised tests where Verify cannot infer the parameters automatically.
+
+  ```cs
+  settings.UseParameters(42, "hello");
+  ```
+</ResponseField>
+
+<ResponseField name="UseTextForParameters(string parametersText)" type="void">
+  Provide a custom string for the `_{Parameters}` segment instead of using serialized parameter values. Not compatible with `UseParameters`.
+
+  ```cs
+  settings.UseTextForParameters("scenario-one");
+  ```
+</ResponseField>
+
+## Scrubbing
+
+Scrubbers transform the snapshot text before comparison, removing or replacing dynamic values that would otherwise cause false failures.
+
+<ResponseField name="AddScrubber(Action<StringBuilder> scrubber)" type="void">
+  Apply a custom transformation to the serialized snapshot string.
+
+  ```cs
+  settings.AddScrubber(s => s.Replace("secret-token", "[redacted]"));
+  ```
+</ResponseField>
+
+<ResponseField name="ScrubLines(Func<string, bool> removeLine)" type="void">
+  Remove any lines for which the predicate returns `true`.
+
+  ```cs
+  settings.ScrubLines(line => line.StartsWith("Timestamp:"));
+  ```
+</ResponseField>
+
+<ResponseField name="ScrubLinesContaining(params string[] stringToMatch)" type="void">
+  Remove all lines that contain any of the given strings (case-insensitive by default).
+
+  ```cs
+  settings.ScrubLinesContaining("generated-id", "timestamp");
+  ```
+</ResponseField>
+
+<ResponseField name="ScrubLinesWithReplace(Func<string, string?> replaceLine)" type="void">
+  Replace individual lines. Return the original line to leave it unchanged, return a new string to replace it, or return `null` to remove it.
+</ResponseField>
+
+<ResponseField name="ScrubEmptyLines()" type="void">
+  Remove all lines that contain only whitespace.
+</ResponseField>
+
+<ResponseField name="ScrubMachineName()" type="void">
+  Replace `Environment.MachineName` in the output with a placeholder.
+</ResponseField>
+
+<ResponseField name="ScrubUserName()" type="void">
+  Replace `Environment.UserName` in the output with a placeholder.
+</ResponseField>
+
+<ResponseField name="ScrubInlineGuids()" type="void">
+  Replace inline GUIDs in the snapshot text with `Guid_N` placeholders.
+</ResponseField>
+
+<ResponseField name="ScrubInlineDateTimes(string format)" type="void">
+  Replace inline `DateTime` values matching the given format string with placeholders.
+</ResponseField>
+
+<ResponseField name="DisableScrubbers()" type="void">
+  Disable all scrubbers (global and instance) for this test.
+</ResponseField>
+
+## Comparison
+
+<ResponseField name="UseStrictJson()" type="void">
+  Serialize the snapshot as strict JSON (`.json` extension) instead of the default relaxed text format (`.txt`).
+
+  ```cs
+  settings.UseStrictJson();
+  ```
+</ResponseField>
+
+<ResponseField name="UseStringComparer(StringCompare compare)" type="void">
+  Supply a custom comparison function for text snapshots.
+</ResponseField>
+
+<ResponseField name="UseStreamComparer(StreamCompare compare)" type="void">
+  Supply a custom comparison function for binary snapshots.
+</ResponseField>
+
+## Callbacks
+
+<ResponseField name="OnVerify(Action before, Action after)" type="void">
+  Register callbacks that run immediately before and after the verification step.
+
+  ```cs
+  settings.OnVerify(
+      before: () => Console.WriteLine("Starting verification"),
+      after:  () => Console.WriteLine("Verification complete"));
+  ```
+</ResponseField>
+
+<ResponseField name="OnFirstVerify(FirstVerify callback)" type="void">
+  Register a callback that runs only when no `.verified.` file exists yet — i.e., during the initial snapshot creation.
+</ResponseField>
+
+<ResponseField name="OnVerifyMismatch(VerifyMismatch callback)" type="void">
+  Register a callback that runs when the received and verified snapshots do not match.
+</ResponseField>
+
+## Auto-accept
+
+<ResponseField name="AutoVerify(bool includeBuildServer, bool throwException)" type="void">
+  Automatically accept (move received → verified) for this test without manual approval.
+
+  ```cs
+  settings.AutoVerify();
+  ```
+
+  Set `includeBuildServer: false` to disable auto-accept on CI. Set `throwException: true` to still fail the test even when auto-accepting.
+</ResponseField>
+
+## Appending extra data
+
+<ResponseField name="AppendValue(string name, object data)" type="void">
+  Append an extra key-value pair to the serialized snapshot. Useful for adding contextual metadata.
+
+  ```cs
+  settings.AppendValue("Environment", "staging");
+  ```
+</ResponseField>
+
+<ResponseField name="AddExtraSettings(Action<JsonSerializerSettings> action)" type="void">
+  Extend the underlying Argon/Newtonsoft JSON serializer settings for this test.
+</ResponseField>
+
+## Context
+
+<ResponseField name="Context" type="Dictionary<string, object>">
+  A free-form dictionary that extensions can use to pass configuration through the `VerifySettings` instance.
+</ResponseField>

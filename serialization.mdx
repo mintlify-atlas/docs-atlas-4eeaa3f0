@@ -1,0 +1,278 @@
+---
+title: "Serialization"
+description: "How Verify serializes objects to snapshot files, and how to control serialization settings."
+---
+
+Verify uses [Argon](https://github.com/SimonCropp/Argon) for serialization. Argon is a hard fork of Newtonsoft.Json optimized for human-readable output.
+
+<Note>
+The default output is technically not valid JSON. Property names and string values are not quoted, and newlines inside strings are not escaped. This makes snapshot files cleaner and easier to read when reviewing diffs. Use [`UseStrictJson`](#strict-json) if you need valid JSON output.
+</Note>
+
+A typical verified file looks like this:
+
+```txt
+{
+  GivenNames: John,
+  FamilyName: Smith,
+  Spouse: Jill,
+  Address: {
+    Street: 4 Puddle Lane,
+    Country: USA
+  },
+  Children: [
+    Sam,
+    Mary
+  ],
+  Id: Guid_1
+}
+```
+
+## Serialization levels
+
+Settings can be applied at three levels. More specific levels take precedence.
+
+| Level | Scope |
+|---|---|
+| **Global** | All tests in the assembly. Set in a `[ModuleInitializer]`. |
+| **Class** | All tests in a test class. Set on a shared `VerifySettings` field. |
+| **Method** | A single test method. Set via `VerifySettings` instance or fluent API. |
+
+## Strict JSON
+
+To produce valid, quoted JSON output, enable `UseStrictJson`. This also changes the default file extension to `.json`.
+
+<Tabs>
+  <Tab title="Global">
+    ```cs
+    [ModuleInitializer]
+    public static void Init() =>
+        VerifierSettings.UseStrictJson();
+    ```
+  </Tab>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.UseStrictJson();
+    await Verify(target, settings);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify(target)
+        .UseStrictJson();
+    ```
+  </Tab>
+</Tabs>
+
+With `UseStrictJson` enabled, the same object produces:
+
+```json
+{
+  "Value": "Foo"
+}
+```
+
+## Default serializer settings
+
+The Argon serializer is configured with these defaults:
+
+```cs
+var settings = new JsonSerializerSettings
+{
+    Formatting = Formatting.Indented,
+    ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+    DefaultValueHandling = DefaultValueHandling.Ignore
+};
+```
+
+- **Indented** — output is always pretty-printed.
+- **ReferenceLoopHandling.Ignore** — circular references are silently skipped.
+- **DefaultValueHandling.Ignore** — `null`, `0`, `false`, and empty collections are omitted by default.
+
+### Empty collections
+
+Empty collections are ignored by default. To include them globally:
+
+```cs
+VerifierSettings.DontIgnoreEmptyCollections();
+```
+
+### Modifying Argon settings
+
+Use `AddExtraSettings` to change any `JsonSerializerSettings` property.
+
+<Tabs>
+  <Tab title="Global">
+    ```cs
+    VerifierSettings.AddExtraSettings(
+        _ => _.TypeNameHandling = TypeNameHandling.All);
+    ```
+  </Tab>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.AddExtraSettings(
+        _ => _.TypeNameHandling = TypeNameHandling.All);
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    await Verify(person)
+        .AddExtraSettings(_ => _.TypeNameHandling = TypeNameHandling.All);
+    ```
+  </Tab>
+</Tabs>
+
+## Ignoring members
+
+### By type
+
+Exclude all members whose declared type matches:
+
+<Tabs>
+  <Tab title="Global">
+    ```cs
+    VerifierSettings.IgnoreMembersWithType<ToIgnore>();
+    ```
+  </Tab>
+  <Tab title="Instance / Fluent">
+    ```cs
+    var settings = new VerifySettings();
+    settings.IgnoreMembersWithType<ToIgnore>();
+    await Verify(target, settings);
+
+    // or fluent
+    await Verify(target)
+        .IgnoreMembersWithType<ToIgnore>();
+    ```
+  </Tab>
+</Tabs>
+
+### By expression
+
+Target specific members with a strongly-typed lambda:
+
+<Tabs>
+  <Tab title="Global">
+    ```cs
+    VerifierSettings.IgnoreMembers<MyClass>(
+        _ => _.Property,
+        _ => _.Field);
+    ```
+  </Tab>
+  <Tab title="Instance / Fluent">
+    ```cs
+    var settings = new VerifySettings();
+    settings.IgnoreMembers<MyClass>(
+        _ => _.Property,
+        _ => _.Field);
+    await Verify(target, settings);
+
+    // or fluent
+    await Verify(target)
+        .IgnoreMembers<MyClass>(_ => _.Property, _ => _.Field);
+    ```
+  </Tab>
+</Tabs>
+
+### By name
+
+```cs
+// For all types
+settings.IgnoreMember("PropertyByName");
+
+// For a specific type
+settings.IgnoreMember(typeof(MyClass), "Property");
+
+// For a specific type (generic overload)
+settings.IgnoreMember<MyClass>("Field");
+```
+
+### By predicate
+
+```cs
+settings.IgnoreMembers(_ => _ is "Field" or "Property");
+settings.IgnoreMembers(_ => _.Name is "PropertyByName");
+```
+
+## Scrubbing members
+
+Scrubbing replaces a member's value with `{Scrubbed}` instead of removing it entirely. The APIs mirror the ignore APIs above.
+
+```cs
+// By type
+settings.ScrubMembersWithType<ToScrub>();
+
+// By expression
+settings.ScrubMembers<MyClass>(_ => _.SensitiveField);
+
+// By name
+settings.ScrubMember("SensitiveField");
+```
+
+Result example:
+
+```txt
+{
+  SensitiveField: {Scrubbed},
+  OtherField: Value
+}
+```
+
+## Custom JSON converters
+
+Implement `WriteOnlyJsonConverter<T>` to control how a specific type is serialized:
+
+```cs
+class CompanyConverter :
+    WriteOnlyJsonConverter<Company>
+{
+    public override void Write(VerifyJsonWriter writer, Company company)
+    {
+        writer.WriteMember(company, company.Name, "Name");
+        writer.WriteMember(company, company.Employees, "Employees");
+    }
+}
+```
+
+Register it globally:
+
+```cs
+[ModuleInitializer]
+public static void Initialize() =>
+    VerifierSettings.AddExtraSettings(_ => _.Converters.Add(new CompanyConverter()));
+```
+
+`VerifyJsonWriter` exposes:
+- `Counter` — the same counter used by Guid and date scrubbing.
+- `Serializer` — the current `JsonSerializer`.
+- `Serialize(object value)` — convenience method to serialize a value using the current writer.
+- `WriteMember(target, value, name)` — writes a property while respecting ignore and scrub rules.
+
+### Testing a converter
+
+Use `WriteOnlyJsonConverter.Execute` to unit-test a converter in isolation:
+
+```cs
+[Fact]
+public Task Test()
+{
+    var company = new Company("Company Name", Employees: ["Employee1", "Employee2"]);
+    var result = WriteOnlyJsonConverter.Execute<CompanyConverter>(company);
+    return VerifyJson(result);
+}
+```
+
+## Member ordering
+
+By default, members are serialized in their declaration order. See the [Argon documentation](https://github.com/SimonCropp/Argon/blob/main/docs/readme.md) for ordering options.
+
+## Null handling
+
+`DefaultValueHandling.Ignore` means `null` values are omitted by default. To include nulls, override via `AddExtraSettings`:
+
+```cs
+VerifierSettings.AddExtraSettings(
+    _ => _.DefaultValueHandling = DefaultValueHandling.Include);
+```

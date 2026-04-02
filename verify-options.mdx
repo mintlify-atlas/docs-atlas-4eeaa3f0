@@ -1,0 +1,253 @@
+---
+title: "Verify options"
+description: "Configure callbacks, AutoVerify, and other advanced options to control how Verify handles snapshot comparison."
+---
+
+## OnHandlers
+
+Verify exposes three callback hooks you can attach to any verification:
+
+- **`OnVerify`** — called before and after each verification run.
+- **`OnFirstVerify`** — called when no verified file exists yet.
+- **`OnVerifyMismatch`** — called when a received file does not match the existing verified file.
+
+<Note>
+OnHandlers are invoked before AutoVerify logic is applied. When `OnVerifyMismatch` fires, both the received and verified files still exist on disk. Immediately after the handler returns, the received file overwrites the verified file when AutoVerify is enabled.
+</Note>
+
+### Globally
+
+Register handlers once in a `[ModuleInitializer]` so they apply to every test in the assembly:
+
+```cs
+public static class ModuleInitializer
+{
+    [ModuleInitializer]
+    public static void Init()
+    {
+        VerifierSettings.OnVerify(
+            before: () => Debug.WriteLine("before"),
+            after: () => Debug.WriteLine("after"));
+        VerifierSettings.OnFirstVerify(
+            (receivedFile, receivedText, autoVerify) =>
+            {
+                Debug.WriteLine(receivedFile);
+                Debug.WriteLine(receivedText);
+                return Task.CompletedTask;
+            });
+        VerifierSettings.OnVerifyMismatch(
+            (filePair, message, autoVerify) =>
+            {
+                Debug.WriteLine(filePair.ReceivedPath);
+                Debug.WriteLine(filePair.VerifiedPath);
+                Debug.WriteLine(message);
+                return Task.CompletedTask;
+            });
+    }
+}
+```
+
+### Per-test (instance)
+
+```cs
+[Fact]
+public Task OnCallbacks()
+{
+    var settings = new VerifySettings();
+    settings.OnVerify(
+        before: () => Debug.WriteLine("before"),
+        after: () => Debug.WriteLine("after"));
+    settings.OnFirstVerify(
+        (receivedFile, receivedText, autoVerify) =>
+        {
+            Debug.WriteLine(receivedFile);
+            Debug.WriteLine(receivedText);
+            return Task.CompletedTask;
+        });
+    settings.OnVerifyMismatch(
+        (filePair, message, autoVerify) =>
+        {
+            Debug.WriteLine(filePair.ReceivedPath);
+            Debug.WriteLine(filePair.VerifiedPath);
+            Debug.WriteLine(message);
+            return Task.CompletedTask;
+        });
+
+    return Verify("value", settings);
+}
+```
+
+### Per-test (fluent)
+
+```cs
+[Fact]
+public Task OnFluentCallbacks() =>
+    Verify("value")
+        .OnVerify(
+            before: () => Debug.WriteLine("before"),
+            after: () => Debug.WriteLine("after"))
+        .OnFirstVerify(
+            (receivedFile, receivedText, autoVerify) =>
+            {
+                Debug.WriteLine(receivedFile);
+                Debug.WriteLine(receivedText);
+                return Task.CompletedTask;
+            })
+        .OnVerifyMismatch(
+            (filePair, message, autoVerify) =>
+            {
+                Debug.WriteLine(filePair.ReceivedPath);
+                Debug.WriteLine(filePair.VerifiedPath);
+                Debug.WriteLine(message);
+                return Task.CompletedTask;
+            });
+```
+
+---
+
+## AutoVerify
+
+AutoVerify automatically accepts received files as the new verified baseline without prompting. The verified file is silently updated whenever it differs from the received file.
+
+**Typical use cases:**
+
+- Keeping a text representation of a database schema in a `.verified.sql` file (for example with [Verify.SqlServer](https://github.com/VerifyTests/Verify.SqlServer)).
+- Accepting all snapshot updates in one pass when regenerating a large set of baselines.
+
+<Note>
+Auto-accepted changes in `.verified.` files remain visible in your source control diff, so reviewers can still inspect what changed.
+</Note>
+
+### Instance
+
+```cs
+var settings = new VerifySettings();
+settings.AutoVerify();
+```
+
+### Fluent
+
+```cs
+[Fact]
+public Task AutoVerifyFluent() =>
+    Verify("Value")
+        .AutoVerify();
+```
+
+### Globally
+
+```cs
+public static class ModuleInitializer
+{
+    [ModuleInitializer]
+    public static void Init() =>
+        VerifierSettings.AutoVerify();
+}
+```
+
+### Conditional AutoVerify
+
+Pass a delegate to AutoVerify only a subset of files based on their path or extension:
+
+<Tabs>
+  <Tab title="Instance">
+    ```cs
+    var settings = new VerifySettings();
+    settings.AutoVerify(
+        verifiedFile =>
+            Path.GetExtension(verifiedFile) == "png");
+    ```
+  </Tab>
+  <Tab title="Fluent">
+    ```cs
+    [Fact]
+    public Task AutoVerifyFluentDelegate() =>
+        Verify("Value")
+            .AutoVerify(
+                verifiedFile =>
+                    Path.GetExtension(verifiedFile) == "png");
+    ```
+  </Tab>
+  <Tab title="Global">
+    ```cs
+    public static class ModuleInitializer
+    {
+        [ModuleInitializer]
+        public static void Init() =>
+            VerifierSettings.AutoVerify(
+                (typeName, methodName, verifiedFile) =>
+                    Path.GetExtension(verifiedFile) == "png");
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Throw when AutoVerify happens
+
+By default, AutoVerify replaces the verified file silently. Use `throwException: true` to still get notified when a replacement occurs:
+
+```cs
+[Fact]
+public Task AutoVerifyThrowException() =>
+    Verify("Value")
+        .AutoVerify(throwException: true);
+```
+
+The verified file is still replaced, but an exception is thrown so you can see the update in the test output.
+
+### Opt out of AutoVerify on the build server
+
+By default AutoVerify applies on both local runs and CI. To disable it on the build server, use `includeBuildServer: false`:
+
+```cs
+[Fact]
+public Task AutoVerifyIncludeBuildServer() =>
+    Verify("Value")
+        .AutoVerify(includeBuildServer: false);
+```
+
+This is useful when you want low friction when accepting changes locally, but want CI to fail if any verified file has changed without a deliberate commit.
+
+---
+
+## OmitContentFromException
+
+When a mismatch occurs for a text file, Verify includes the received and verified content in the thrown exception by default. This means the full diff appears in test runner output and build logs.
+
+To omit the file content from the exception message:
+
+```cs
+VerifierSettings.OmitContentFromException();
+```
+
+---
+
+## DisableDiff
+
+Verify launches a diff tool when a mismatch occurs during local development. To suppress this:
+
+```cs
+var settings = new VerifySettings();
+settings.DisableDiff();
+```
+
+---
+
+## Static settings via ModuleInitializer
+
+Global settings should be applied before any test runs. The standard .NET mechanism for this is a `[ModuleInitializer]`:
+
+```cs
+public static class ModuleInitializer
+{
+    [ModuleInitializer]
+    public static void Init()
+    {
+        // Apply global settings here
+        VerifierSettings.AutoVerify();
+        VerifierSettings.OmitContentFromException();
+    }
+}
+```
+
+The `[ModuleInitializer]` attribute (available from .NET 5 / C# 9) ensures the method runs once before any test in the assembly executes.

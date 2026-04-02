@@ -1,0 +1,126 @@
+---
+title: "Build server"
+description: "Configure CI/CD pipelines to surface received snapshot files as artifacts when tests fail, so you can review and accept changes without a local environment."
+---
+
+When a Verify test fails on a build server, the received files exist only for the duration of the build. To review mismatches you need to retrieve those files before the build agent cleans up. The standard approach is to upload all `*.received.*` files as build artifacts on failure.
+
+## GitHub Actions
+
+Use an [`if: failure()`](https://docs.github.com/en/free-pro-team@latest/actions/reference/context-and-expression-syntax-for-github-actions#failure) condition on an upload step so the artifact is only published when the job fails:
+
+```yaml
+- name: Upload Test Results
+  if: failure()
+  uses: actions/upload-artifact@v4
+  with:
+    name: verify-test-results
+    path: |
+      **/*.received.*
+```
+
+<Tabs>
+  <Tab title="GitHub Actions">
+    Add the step directly after your test runner step in the job:
+
+    ```yaml
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run tests
+        run: dotnet test
+
+      - name: Upload Test Results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-test-results
+          path: |
+            **/*.received.*
+    ```
+
+    Download the artifact from the **Actions** run summary page to retrieve the received files.
+  </Tab>
+
+  <Tab title="Azure DevOps">
+    Azure DevOps does not support wildcards in `PublishBuildArtifacts`, so you need three steps: set a flag on failure, copy the files to the staging directory, then publish.
+
+    **Step 1 — Set a flag when tests fail:**
+
+    ```yaml
+    - task: CmdLine@2
+      displayName: 'Set flag to publish Verify *.received.* files when test step fails'
+      condition: failed()
+      inputs:
+        script: 'echo "##vso[task.setvariable variable=publishverify]Yes"'
+    ```
+
+    **Step 2 — Copy received files to the artifact staging directory:**
+
+    ```yaml
+    - task: CopyFiles@2
+      condition: eq(variables['publishverify'], 'Yes')
+      displayName: 'Copy Verify *.received.* files to Artifact Staging'
+      inputs:
+        contents: '**/*.received.*'
+        targetFolder: '$(Build.ArtifactStagingDirectory)/Verify'
+        cleanTargetFolder: true
+        overWrite: true
+    ```
+
+    **Step 3 — Publish the staged files:**
+
+    ```yaml
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Verify *.received.* files as Artifacts'
+      name: 'verifypublish'
+      condition: eq(variables['publishverify'], 'Yes')
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/Verify'
+        ArtifactName: 'Verify'
+        publishLocation: 'Container'
+    ```
+  </Tab>
+
+  <Tab title="AppVeyor">
+    Use an [`on_failure` build step](https://www.appveyor.com/docs/build-configuration/#build-pipeline) to push received files as artifacts via [Push-AppveyorArtifact](https://www.appveyor.com/docs/build-worker-api/#push-artifact):
+
+    ```yaml
+    on_failure:
+      - ps: Get-ChildItem *.received.* -recurse | % { Push-AppveyorArtifact $_.FullName -FileName $_.Name }
+    ```
+
+    See also [Pushing artifacts from scripts](https://www.appveyor.com/docs/packaging-artifacts/#pushing-artifacts-from-scripts).
+  </Tab>
+</Tabs>
+
+## Attachments for NUnit and MSTest
+
+For **NUnit** and **MSTest**, Verify automatically adds received files to the test context's attachment list. Build servers that honour these attachment APIs will surface the files without any additional pipeline configuration:
+
+- [NUnit TestContext attachments](https://docs.nunit.org/articles/nunit/writing-tests/TestContext.html#addformatter-32)
+- [MSTest TestContext.AddResultFile](https://learn.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.testtools.unittesting.testcontext.addresultfile?view=visualstudiosdk-2022)
+
+## Custom directory and file name
+
+In some pipelines the test assemblies are copied to a different directory or machine before running. Verify derives the path to `.verified.` files from the source file path at compile time, so this mismatch will cause lookups to fail.
+
+Use `DerivePathInfo` to override how Verify resolves paths at runtime. Here is an example for AppVeyor that maps paths relative to the build folder:
+
+```cs
+if (BuildServerDetector.Detected)
+{
+    var buildDirectory = Environment.GetEnvironmentVariable("APPVEYOR_BUILD_FOLDER")!;
+    DerivePathInfo(
+        (sourceFile, projectDirectory, typeName, methodName) =>
+        {
+            var testDirectory = Path.GetDirectoryName(sourceFile)!;
+            var testDirectorySuffix = testDirectory.Replace(projectDirectory, string.Empty);
+            return new(directory: Path.Combine(buildDirectory, testDirectorySuffix));
+        });
+}
+```
+
+<Tip>
+`BuildServerDetector.Detected` returns `true` when a known CI environment variable is present, so you can safely call this code in a `[ModuleInitializer]` and it will only activate on the build server.
+</Tip>
